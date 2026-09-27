@@ -86,7 +86,15 @@ git -C SillyTavern/data/default-user/extensions/ST-sound-forest-TTS remote set-u
 - 上游原分支链接：<https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main>
 - 更早的来源：[hjl2004-10/extension](https://github.com/hjl2004-10/extension)。
 
-原项目版权归原作者所有，本二改分支保留全部原始署名。新增 / 修改部分由本仓库维护者添加。项目按 MIT License 发布，详见 [LICENSE](LICENSE)。
+原项目版权归原作者所有，本二改分支保留全部原始署名。许可分两层：
+
+- **上游代码部分**：MIT License（原始声明完整保留，见 [`LICENSE-MIT`](LICENSE-MIT)）。
+- **本二改分支的新增 / 修改部分**：**CC BY-NC-SA 4.0**（署名 — 非商业性使用 — 相同方式共享），全文见 [`LICENSE`](LICENSE) 文件。
+  - 署名：请保留 wyndam-c / lynn33-2728 / hjl2004-10 的署名；
+  - 非商业性使用：不得用于商业用途（售卖、付费墙、内置进商业产品等）；
+  - 相同方式共享：基于本二改内容的衍生作品需以相同许可发布。
+
+细节见 [`NOTICE.md`](NOTICE.md)。
 
 ---
 
