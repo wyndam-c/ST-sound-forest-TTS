@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.3-mimo";
+const extensionVersion = "2.3.4-mimo";
 
 // 全局状态管理
 const audioState = {
@@ -1988,6 +1988,24 @@ function getVoiceForSpeaker(speakerName) {
 }
 
 // 保存三引擎 API 资料（按钮触发，带反馈）
+// 保存反馈：按钮旁冒一行小字（绿=成功、红=出错）。
+// 上游把「保存设置」的弹窗提示去掉了，点了没动静容易被当成坏了，这里补上看得见的反馈。
+function flashSaveFeedback($btn, text, isError) {
+  try {
+    if (!$btn || !$btn.length) return;
+    const $tip = $('<span class="sf-save-flash"></span>')
+      .text(text)
+      .css({
+        color: isError ? "#e05252" : "#2e9e5b",
+        marginLeft: "8px",
+        fontSize: "12px",
+        whiteSpace: "nowrap",
+      });
+    $btn.after($tip);
+    setTimeout(() => { $tip.fadeOut(300, () => $tip.remove()); }, isError ? 5000 : 1600);
+  } catch (e) { /* 反馈失败不影响保存 */ }
+}
+
 function saveApiSettings() {
   const s = extension_settings[extensionName];
   s.apiKey = String($("#siliconflow_api_key").val() || "").trim();
@@ -2045,7 +2063,7 @@ function saveSettings() {
   syncMimoSettingsFromUi();
   
   saveSettingsDebounced();
-  // 移除弹窗提示，改为控制台日志
+  ttsLog("💾 设置已保存");
   console.log("设置已保存");
 }
 
@@ -4662,7 +4680,21 @@ jQuery(async () => {
   }, 100);
   
   // 绑定事件
-  $("#save_siliconflow_settings").on("click", saveSettings);
+  // 「保存设置」：委托绑定（元素晚渲染也不会失效）+ 保存后给看得见的反馈
+  $(document).on("click", "#save_siliconflow_settings", function() {
+    const $btn = $(this);
+    try {
+      primeAudioOnce?.(); // 顺手解锁一次音频（若可用）
+    } catch (e) { /* 忽略 */ }
+    try {
+      saveSettings();
+      flashSaveFeedback($btn, "✅ 已保存", false);
+    } catch (err) {
+      console.error("[声林TTS] 保存设置失败：", err);
+      ttsLog("❌ 保存设置失败：" + (err && err.message ? err.message : err));
+      flashSaveFeedback($btn, "保存出错（详见控制台 F12）", true);
+    }
+  });
   
   // 克隆音色功能事件
   $("#upload_voice").on("click", uploadVoice);
@@ -4791,7 +4823,15 @@ jQuery(async () => {
 
   // ===== 保存API设置按钮（三引擎通用） =====
   $(document).on("click", ".sf-save-api-settings", function() {
-    saveApiSettings();
+    const $btn = $(this);
+    try {
+      saveApiSettings();
+      flashSaveFeedback($btn, "✅ 已保存", false);
+    } catch (err) {
+      console.error("[声林TTS] 保存API设置失败：", err);
+      ttsLog("❌ 保存API设置失败：" + (err && err.message ? err.message : err));
+      flashSaveFeedback($btn, "保存出错（详见控制台 F12）", true);
+    }
   });
   $("#refresh_role_voices").on("click", function() {
     renderRoleVoiceMap();
