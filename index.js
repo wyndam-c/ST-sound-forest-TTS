@@ -111,7 +111,7 @@ const defaultSettings = {
   roleVoiceMap: {},
   customVoices: [], // 存储自定义音色列表
   // ===== 引擎切换与火山引擎配置 =====
-  engine: "siliconflow", // siliconflow | volcano | minimax | moss | fish
+  engine: "siliconflow", // siliconflow | volcano | minimax | moss | fish | mimo
   volcAppId: "",
   volcAccessKey: "",
   volcSpeaker: "zh_female_vv_uranus_bigtts",
@@ -633,7 +633,7 @@ const VOLC_VOICES = [
 // 当前引擎
 function getEngine() {
   const e = extension_settings[extensionName]?.engine;
-  return e === "volcano" || e === "minimax" || e === "moss" || e === "fish" ? e : "siliconflow";
+  return e === "volcano" || e === "minimax" || e === "moss" || e === "fish" || e === "mimo" ? e : "siliconflow";
 }
 
 // 火山当前音色：自定义（ICL 复刻）优先
