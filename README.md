@@ -1,5 +1,9 @@
 # 声林 TTS · 多引擎语音插件 for SillyTavern
 
+> **本仓库为二改分支**（fork 自 [lynn33-2728/sound-forest-TTS](https://github.com/lynn33-2728/ST-sound-forest-TTS)）。
+> 在原有 5 引擎基础上**新增「小米 MiMo TTS」引擎**（`v2.3.0-mimo`，支持预置音色 / 音色设计 / 音色克隆），详见文末「二改说明」。
+
+
 一个用于 SillyTavern（酒馆）的多引擎 TTS 语音扩展：一个插件，五个引擎随便切。
 
 - **硅基流动 SiliconFlow**：CosyVoice2，支持在线克隆音色
@@ -69,3 +73,35 @@ https://github.com/lynn33-2728/sound-forest-TTS
 本项目是 [hjl2004-10/extension](https://github.com/hjl2004-10/extension) 的修改版。
 
 原项目版权归原作者所有。修改部分由本仓库维护者添加。项目按 MIT License 发布，详见 [LICENSE](LICENSE)。
+
+---
+
+## 二改说明：新增「小米 MiMo」引擎（v2.3.0-mimo）
+
+在原 5 引擎（硅基流动 / 火山 / MiniMax / MOSS / Fish Audio）基础上，**新增第 6 个引擎：小米 MiMo TTS**。
+
+### 它是什么
+
+小米 MiMo 的 TTS 走 OpenAI 兼容的 `POST {host}/v1/chat/completions`，请求头用 `api-key`，返回 `choices[0].message.audio.data`（base64 wav）。因此它天然适配本插件的「一引擎 = 一套配置」结构。
+
+三种合成模式：
+
+| 模式 | 模型 | 说明 |
+|---|---|---|
+| 预置音色 | `mimo-v2.5-tts` | 官方 9 个音色：MiMo 默认 / 冰糖 / 茉莉 / 苏打 / 白桦 / Mia / Chloe / Milo / Dean |
+| 音色设计 | `mimo-v2.5-tts-voicedesign` | 用一段文字描述生成音色（性别、年龄、口音、音高、音色质感、气质） |
+| 音色克隆 | `mimo-v2.5-tts-voiceclone` | 上传 mp3 / wav / m4a 参考音频（≤8MB），以 base64 随请求发送 |
+
+### 配置
+
+1. 引擎下拉选「小米 MiMo」。
+2. 填 **API Key**（官方 `api.xiaomimimo.com`）。也可勾选「改用免费通道」并填免费 Key（`token-plan-sgp.xiaomimimo.com`）。
+3. 选合成模式，填对应内容；「朗读风格」可选，为预置/克隆模式的全局演绎风格。
+4. 点「测试连接」验证，或到「通用 → TTS测试」用当前引擎试听。
+
+### 兼容说明
+
+- 直连若报 CORS，勾选「经酒馆 /proxy 转发」（走酒馆服务端中转，需要新版酒馆）。
+- 返回音频为 **wav**；缓存面板的下载会保存为 `.wav`。
+- 「多人角色音色」映射只在**预置音色**模式下逐角色生效；设计 / 克隆模式对所有角色统一。
+- 缓存 / 日志 / 悬浮播放条 / 文本截取等公共能力与其它引擎完全一致。

@@ -33,6 +33,7 @@
                                     <option value="minimax">MiniMax</option>
                                     <option value="moss">MOSS</option>
                                     <option value="fish">Fish Audio</option>
+                                    <option value="mimo">小米 MiMo</option>
                                 </select>
                             </div>
 
@@ -396,6 +397,84 @@
                                 </section>
                             </div>
 
+                            <!-- ---------- 小米 MiMo 组 ---------- -->
+                            <div id="sf_engine_mimo" class="sf-engine-block" style="display: none;">
+                                <section class="sf-section">
+                                    <h4>小米 MiMo · API设定</h4>
+                                    <div class="sf-help-line">小米 MiMo TTS 走 OpenAI 兼容接口，返回 wav 音频。在下面填入 MiMo 的 API Key 即可。</div>
+                                    <div class="sf-setting-row">
+                                        <label for="mimo_api_key">API Key：</label>
+                                        <input id="mimo_api_key" type="password" placeholder="输入小米 MiMo API Key" />
+                                    </div>
+                                    <div class="sf-setting-row">
+                                        <label for="mimo_api_host">接口地址：</label>
+                                        <input id="mimo_api_host" type="text" value="https://api.xiaomimimo.com" />
+                                    </div>
+                                    <div class="setting-item button-group sf-checkbox-inline-row">
+                                        <label class="sf-checkbox-item">
+                                            <input type="checkbox" id="mimo_use_free" /><span>改用免费通道（token-plan-sgp）</span>
+                                        </label>
+                                        <label class="sf-checkbox-item">
+                                            <input type="checkbox" id="mimo_use_proxy" /><span>经酒馆 /proxy 转发（直连被 CORS 拦时勾选）</span>
+                                        </label>
+                                    </div>
+                                    <div class="sf-setting-row" id="mimo_free_row">
+                                        <label for="mimo_free_api_key">免费通道 Key：</label>
+                                        <input id="mimo_free_api_key" type="password" placeholder="勾选「免费通道」后使用这个 Key" />
+                                    </div>
+                                    <div class="setting-item button-group">
+                                        <button type="button" id="test_mimo_connection" class="menu_button">测试连接</button>
+                                        <button type="button" class="menu_button sf-save-api-settings">保存API设置</button>
+                                        <span id="mimo_connection_status" style="color: red;">未连接</span>
+                                    </div>
+                                    <small>官方与免费通道填一个即可；两个都用时以勾选的通道为准。</small>
+                                </section>
+
+                                <section class="sf-section">
+                                    <h4>语音设定</h4>
+                                    <div class="setting-item">
+                                        <label for="mimo_mode">合成模式</label>
+                                        <select id="mimo_mode">
+                                            <option value="preset">预置音色（官方 9 个音色）</option>
+                                            <option value="design">音色设计（用文字描述生成音色）</option>
+                                            <option value="clone">音色克隆（上传参考音频）</option>
+                                        </select>
+                                        <small>角色音色映射只在「预置音色」模式下生效；设计 / 克隆模式对所有角色统一使用。</small>
+                                    </div>
+                                    <div class="setting-item" id="mimo_preset_row">
+                                        <label for="mimo_voice">音色</label>
+                                        <select id="mimo_voice"></select>
+                                    </div>
+                                    <div class="setting-item" id="mimo_design_row" style="display: none;">
+                                        <label for="mimo_design_prompt">音色设计描述</label>
+                                        <textarea id="mimo_design_prompt" placeholder="例如：年轻女声，音色清亮偏甜，咬字干净，气质温柔安静"></textarea>
+                                        <small>描述性别、年龄 / 声音年龄、口音、音高、音色质感、发声方式、气质；不要写语速或后期音效词。</small>
+                                    </div>
+                                    <div class="setting-item" id="mimo_clone_row" style="display: none;">
+                                        <label for="mimo_clone_file">参考音频（mp3 / wav / m4a，≤8MB）</label>
+                                        <input type="file" id="mimo_clone_file" accept="audio/*,.mp3,.wav,.m4a" />
+                                        <div>状态：<span id="mimo_clone_status" style="color: red;">未上传</span></div>
+                                        <small>参考音频以 base64 直接随请求发送，不会上传到别处。</small>
+                                    </div>
+                                    <div class="setting-item">
+                                        <label for="mimo_style_prompt">朗读风格（可选）</label>
+                                        <textarea id="mimo_style_prompt" placeholder="例如：平静温柔的叙述语气，句子之间稍作停顿"></textarea>
+                                        <small>「预置音色」和「音色克隆」会用到；留空则使用模型默认风格。</small>
+                                    </div>
+                                </section>
+
+                                <section class="sf-section">
+                                    <details>
+                                        <summary>小米 MiMo TTS 说明</summary>
+                                        <div class="sf-help-line">
+                                            使用 <code>mimo-v2.5-tts</code> / <code>mimo-v2.5-tts-voicedesign</code> / <code>mimo-v2.5-tts-voiceclone</code> 三个模型。<br>
+                                            预置音色：MiMo 默认、冰糖、茉莉、苏打、白桦、Mia、Chloe、Milo、Dean。<br>
+                                            若直连报 CORS 错误，勾选上面的「经酒馆 /proxy 转发」再试。
+                                        </div>
+                                    </details>
+                                </section>
+                            </div>
+
                             <!-- ---------- 各引擎共用 ---------- -->
                             <section class="sf-section">
                                 <h4>通用</h4>
@@ -542,7 +621,7 @@
                         <!-- ==================== 缓存面板 ==================== -->
                         <section class="sf-pane" id="sf_pane_cache" style="display: none;">
                             <h4>语音缓存</h4>
-                            <small>本次会话里生成过的语音。重听直接放缓存不扣费；可下载 mp3 或删除。刷新页面后缓存清空。</small>
+                            <small>本次会话里生成过的语音。重听直接放缓存不扣费；可下载音频或删除。刷新页面后缓存清空。</small>
                             <div class="sf-cache-columns">
                                 <div class="sf-cache-col">
                                     <div class="sf-cache-col-head sf-cache-toggle" data-engine="siliconflow" title="点击展开/收起缓存列表">
@@ -589,7 +668,15 @@
                                     </div>
                                     <div id="sf_cache_list_fish" class="sf-cache-list" style="display: none;"><small>暂无缓存</small></div>
                                 </div>
-                            </div>
+                                <div class="sf-cache-col">
+                                    <div class="sf-cache-col-head sf-cache-toggle" data-engine="mimo" title="点击展开/收起缓存列表">
+                                        <span class="sf-cache-arrow" id="sf_cache_arrow_mimo">▸</span>
+                                        <strong>小米 MiMo</strong>
+                                        <span class="sf-cache-stats sf-cache-stats-mimo" id="sf_cache_stats_mimo"></span>
+                                        <button type="button" class="menu_button sf-cache-clear" data-engine="mimo">清空</button>
+                                    </div>
+                                    <div id="sf_cache_list_mimo" class="sf-cache-list" style="display: none;"><small>暂无缓存</small></div>
+                                </div>                            </div>
                         </section>
 
                         <!-- ==================== 日志面板 ==================== -->

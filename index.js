@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.2.6";
+const extensionVersion = "2.3.0-mimo";
 
 // 全局状态管理
 const audioState = {
@@ -143,7 +143,20 @@ const defaultSettings = {
   fishVoiceId: "",
   fishManualVoiceId: "",
   fishVoices: [],
-  roleVoiceMapFish: {}
+  roleVoiceMapFish: {},
+  // ===== 小米 MiMo TTS =====
+  mimoApiKey: "",
+  mimoApiHost: "https://api.xiaomimimo.com",
+  mimoFreeApiKey: "",
+  mimoUseFree: false,
+  mimoUseProxy: false,
+  mimoMode: "preset", // preset | design | clone
+  mimoVoice: "mimo_default",
+  mimoStylePrompt: "",
+  mimoDesignPrompt: "",
+  mimoCloneData: "",
+  mimoCloneName: "",
+  roleVoiceMapMimo: {}
 };
 
 // MOSS 官方文档公开列出的试听音色。部分新账号的列表接口会暂时返回空数组，
@@ -1271,6 +1284,213 @@ async function synthesizeFish(text, voiceId) {
   return audio;
 }
 
+// ============ 小米 MiMo TTS ============
+// MiMo 的 TTS 走 OpenAI 兼容的 /v1/chat/completions：
+//   preset → model=mimo-v2.5-tts            audio.voice=预置音色ID，user 消息=朗读风格
+//   design → model=mimo-v2.5-tts-voicedesign user 消息=音色设计描述
+//   clone  → model=mimo-v2.5-tts-voiceclone  audio.voice=参考音频(data URL)
+// 返回：choices[0].message.audio.data（base64 wav）
+const MIMO_VOICES = [
+  { value: "mimo_default", name: "MiMo 默认" },
+  { value: "冰糖", name: "冰糖" },
+  { value: "茉莉", name: "茉莉" },
+  { value: "苏打", name: "苏打" },
+  { value: "白桦", name: "白桦" },
+  { value: "Mia", name: "Mia" },
+  { value: "Chloe", name: "Chloe" },
+  { value: "Milo", name: "Milo" },
+  { value: "Dean", name: "Dean" },
+];
+const MIMO_HOST_OFFICIAL = "https://api.xiaomimimo.com";
+const MIMO_HOST_FREE = "https://token-plan-sgp.xiaomimimo.com";
+const MIMO_MODEL_BY_MODE = {
+  preset: "mimo-v2.5-tts",
+  design: "mimo-v2.5-tts-voicedesign",
+  clone: "mimo-v2.5-tts-voiceclone",
+};
+
+function normalizeMimoHost(host) {
+  let u = String(host || "").trim().replace(/\/+$/, "");
+  if (!u) return MIMO_HOST_OFFICIAL;
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u;
+}
+
+function mimoChatUrl(host) {
+  const u = normalizeMimoHost(host);
+  if (/\/chat\/completions$/i.test(u)) return u;
+  if (/\/v1$/i.test(u)) return u + "/chat/completions";
+  return u + "/v1/chat/completions";
+}
+
+function syncMimoSettingsFromUi() {
+  const s = extension_settings[extensionName] || (extension_settings[extensionName] = {});
+  if ($("#mimo_api_key").length) s.mimoApiKey = String($("#mimo_api_key").val() || "").trim();
+  if ($("#mimo_api_host").length) s.mimoApiHost = normalizeMimoHost($("#mimo_api_host").val());
+  if ($("#mimo_free_api_key").length) s.mimoFreeApiKey = String($("#mimo_free_api_key").val() || "").trim();
+  if ($("#mimo_use_free").length) s.mimoUseFree = $("#mimo_use_free").prop("checked") === true;
+  if ($("#mimo_use_proxy").length) s.mimoUseProxy = $("#mimo_use_proxy").prop("checked") === true;
+  if ($("#mimo_mode").length) {
+    const m = String($("#mimo_mode").val() || "preset");
+    s.mimoMode = (m === "design" || m === "clone") ? m : "preset";
+  }
+  if ($("#mimo_voice").length) s.mimoVoice = String($("#mimo_voice").val() || "mimo_default").trim() || "mimo_default";
+  if ($("#mimo_style_prompt").length) s.mimoStylePrompt = String($("#mimo_style_prompt").val() || "");
+  if ($("#mimo_design_prompt").length) s.mimoDesignPrompt = String($("#mimo_design_prompt").val() || "");
+  return s;
+}
+
+function getMimoMode() {
+  const m = String(extension_settings[extensionName]?.mimoMode || "preset");
+  return (m === "design" || m === "clone") ? m : "preset";
+}
+
+// 当前 MiMo「音色」的标识（会存进角色音色映射与缓存 key）
+function getMimoVoiceKey() {
+  const s = extension_settings[extensionName] || {};
+  const mode = getMimoMode();
+  if (mode === "design") return "design:" + (String(s.mimoDesignPrompt || "").trim().slice(0, 24) || "默认");
+  if (mode === "clone") return "clone:" + (String(s.mimoCloneName || "").trim() || "参考音频");
+  return String(s.mimoVoice || "mimo_default").trim() || "mimo_default";
+}
+
+function getMimoVoiceLabel(voiceKey) {
+  const k = String(voiceKey || "");
+  if (k.startsWith("design:")) return "音色设计（" + k.slice(7) + "）";
+  if (k.startsWith("clone:")) return "音色克隆（" + k.slice(6) + "）";
+  const hit = MIMO_VOICES.find(v => v.value === k);
+  return hit ? hit.name : k;
+}
+
+function buildMimoVoiceOptions() {
+  const select = $("#mimo_voice");
+  if (!select.length) return;
+  const s = extension_settings[extensionName] || {};
+  const current = String(s.mimoVoice || "mimo_default").trim() || "mimo_default";
+  select.empty();
+  MIMO_VOICES.forEach(v => select.append($("<option>").val(v.value).text(v.name)));
+  if (!MIMO_VOICES.some(v => v.value === current)) {
+    select.append($("<option>").val(current).text(current + "（已保存）"));
+  }
+  select.val(current);
+}
+
+function updateMimoModeUI() {
+  const mode = getMimoMode();
+  $("#mimo_preset_row").toggle(mode === "preset");
+  $("#mimo_design_row").toggle(mode === "design");
+  $("#mimo_clone_row").toggle(mode === "clone");
+}
+
+function updateMimoCloneUI() {
+  const s = extension_settings[extensionName] || {};
+  const el = $("#mimo_clone_status");
+  if (!el.length) return;
+  if (s.mimoCloneData) {
+    el.text("已就绪：" + (String(s.mimoCloneName || "").trim() || "参考音频")).css("color", "green");
+  } else {
+    el.text("未上传").css("color", "red");
+  }
+}
+
+async function handleMimoCloneFile(file) {
+  if (!file) return;
+  const nameOk = /\.(mp3|wav|m4a)$/i.test(String(file.name || ""));
+  const typeOk = /^audio\//.test(String(file.type || ""));
+  if (!nameOk && !typeOk) {
+    toastr.error("请上传 mp3 / wav / m4a 音频文件", "小米 MiMo");
+    return;
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    toastr.error("参考音频请控制在 8MB 以内", "小米 MiMo");
+    return;
+  }
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const s = extension_settings[extensionName];
+    s.mimoCloneData = dataUrl;
+    s.mimoCloneName = String(file.name || "参考音频");
+    saveSettingsDebounced();
+    updateMimoCloneUI();
+    toastr.success("参考音频已载入，「音色克隆」模式即可使用", "小米 MiMo");
+    ttsLog("小米 MiMo：已载入克隆参考音频 " + s.mimoCloneName + "（" + (file.size / 1024).toFixed(0) + " KB）");
+  } catch (e) {
+    toastr.error("读取音频失败：" + (e && e.message ? e.message : e), "小米 MiMo");
+  }
+}
+
+async function synthesizeMimo(text, voiceKey) {
+  const s = syncMimoSettingsFromUi();
+  const mode = getMimoMode();
+  const useFree = s.mimoUseFree === true && String(s.mimoFreeApiKey || "").trim();
+  const apiKey = String((useFree ? s.mimoFreeApiKey : s.mimoApiKey) || "").trim();
+  if (!apiKey) throw new Error(useFree ? "请先填写小米 MiMo 免费 Key" : "请先填写小米 MiMo API Key");
+  const host = useFree ? MIMO_HOST_FREE : s.mimoApiHost;
+  const body = {
+    model: MIMO_MODEL_BY_MODE[mode] || MIMO_MODEL_BY_MODE.preset,
+    messages: [
+      { role: "user", content: String(s.mimoStylePrompt || "").trim() },
+      { role: "assistant", content: text },
+    ],
+    audio: { format: "wav" },
+  };
+  if (mode === "design") {
+    const design = String(s.mimoDesignPrompt || "").trim();
+    if (!design) throw new Error("「音色设计」模式需要先填写音色设计描述");
+    body.messages[0].content = design;
+  } else if (mode === "clone") {
+    const data = String(s.mimoCloneData || "").trim();
+    if (!data) throw new Error("「音色克隆」模式需要先上传参考音频（mp3 / wav / m4a）");
+    body.audio.voice = data;
+  } else {
+    body.audio.voice = String(voiceKey || s.mimoVoice || "mimo_default").trim() || "mimo_default";
+  }
+  const url = mimoChatUrl(host);
+  const target = s.mimoUseProxy === true ? ("/proxy/" + encodeURIComponent(url)) : url;
+  const headers = { "Content-Type": "application/json", "api-key": apiKey };
+  if (s.mimoUseProxy === true && typeof getRequestHeaders === "function") {
+    Object.assign(headers, getRequestHeaders());
+    headers["api-key"] = apiKey;
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  let resp;
+  try {
+    resp = await fetch(target, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("小米 MiMo 请求超时（90 秒）");
+    throw new Error("小米 MiMo 请求失败：" + (e && e.message ? e.message : e));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  const raw = await resp.text();
+  if (!resp.ok) throw new Error("小米 MiMo HTTP " + resp.status + "：" + raw.slice(0, 240));
+  let data = null;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    throw new Error("小米 MiMo 返回的不是 JSON：" + raw.slice(0, 180));
+  }
+  const b64 = data?.choices?.[0]?.message?.audio?.data || data?.audio?.data || data?.audio;
+  if (!b64 || typeof b64 !== "string") throw new Error("小米 MiMo 没有返回音频数据（可能 Key 无效或额度不足）");
+  let bin = "";
+  try {
+    bin = atob(String(b64).replace(/^data:.*?;base64,/, ""));
+  } catch (e) {
+    throw new Error("小米 MiMo 返回的音频不是合法 base64");
+  }
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const blob = new Blob([u8], { type: "audio/wav" });
+  if (!blob.size) throw new Error("小米 MiMo 返回了空音频");
+  return blob;
+}
+
 function normalizeTagPairs(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -1508,6 +1728,18 @@ async function loadSettings() {
   $("#fish_model").val(extension_settings[extensionName].fishModel || defaultSettings.fishModel);
   $("#fish_voice_id_manual").val(extension_settings[extensionName].fishManualVoiceId || "");
   buildFishVoiceOptions();
+  // 小米 MiMo 设置回显
+  $("#mimo_api_key").val(extension_settings[extensionName].mimoApiKey || "");
+  $("#mimo_api_host").val(normalizeMimoHost(extension_settings[extensionName].mimoApiHost || defaultSettings.mimoApiHost));
+  $("#mimo_free_api_key").val(extension_settings[extensionName].mimoFreeApiKey || "");
+  $("#mimo_use_free").prop("checked", extension_settings[extensionName].mimoUseFree === true);
+  $("#mimo_use_proxy").prop("checked", extension_settings[extensionName].mimoUseProxy === true);
+  $("#mimo_mode").val(getMimoMode());
+  $("#mimo_style_prompt").val(extension_settings[extensionName].mimoStylePrompt || "");
+  $("#mimo_design_prompt").val(extension_settings[extensionName].mimoDesignPrompt || "");
+  buildMimoVoiceOptions();
+  updateMimoModeUI();
+  updateMimoCloneUI();
   updateEngineUI();
 
   updateVoiceOptions();
@@ -1606,6 +1838,7 @@ function getDefaultVoice() {
   if (engine === "minimax") return getMinimaxVoice();
   if (engine === "moss") return getMossVoice();
   if (engine === "fish") return getFishVoice();
+  if (engine === "mimo") return getMimoVoiceKey();
   return $("#tts_voice").val() || extension_settings[extensionName].ttsVoice || defaultSettings.ttsVoice;
 }
 
@@ -1628,6 +1861,10 @@ function getRoleVoiceMap() {
   if (engine === "fish") {
     s.roleVoiceMapFish = s.roleVoiceMapFish || {};
     return s.roleVoiceMapFish;
+  }
+  if (engine === "mimo") {
+    s.roleVoiceMapMimo = s.roleVoiceMapMimo || {};
+    return s.roleVoiceMapMimo;
   }
   s.roleVoiceMap = s.roleVoiceMap || {};
   return s.roleVoiceMap;
@@ -1681,6 +1918,9 @@ function getEngineVoiceOptions() {
     }
     return options;
   }
+  if (engine === "mimo") {
+    return MIMO_VOICES.map(v => ({ value: v.value, label: `${v.name}（小米 MiMo）` }));
+  }
   return getAllVoiceOptions();
 }
 
@@ -1729,6 +1969,7 @@ function saveApiSettings() {
   syncMinimaxSettingsFromUi();
   syncMossSettingsFromUi();
   syncFishSettingsFromUi();
+  syncMimoSettingsFromUi();
   saveSettingsDebounced();
   toastr.success("API 设置已保存，刷新后自动恢复", "声林");
   ttsLog("💾 API 设置已保存");
@@ -1762,7 +2003,7 @@ function saveSettings() {
   extension_settings[extensionName].autoPlayUser = $("#auto_play_user").prop("checked");
   // 引擎与火山设置
   const selectedEngine = $("#tts_engine").val();
-  extension_settings[extensionName].engine = selectedEngine === "volcano" || selectedEngine === "minimax" || selectedEngine === "moss" || selectedEngine === "fish" ? selectedEngine : "siliconflow";
+  extension_settings[extensionName].engine = selectedEngine === "volcano" || selectedEngine === "minimax" || selectedEngine === "moss" || selectedEngine === "fish" || selectedEngine === "mimo" ? selectedEngine : "siliconflow";
   extension_settings[extensionName].volcAppId = String($("#volc_app_id").val() || "").trim();
   extension_settings[extensionName].volcAccessKey = String($("#volc_access_key").val() || "").trim();
   extension_settings[extensionName].volcSpeaker = $("#volc_speaker").val() || defaultSettings.volcSpeaker;
@@ -1772,6 +2013,8 @@ function saveSettings() {
   // MOSS 设置
   syncMossSettingsFromUi();
   syncFishSettingsFromUi();
+  // 小米 MiMo 设置
+  syncMimoSettingsFromUi();
   
   saveSettingsDebounced();
   // 移除弹窗提示，改为控制台日志
@@ -1915,6 +2158,16 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
       return;
     }
   }
+  if (engine === "mimo") {
+    syncMimoSettingsFromUi();
+    const mimoUseFree = settings.mimoUseFree === true && String(settings.mimoFreeApiKey || "").trim();
+    const mimoKey = String((mimoUseFree ? settings.mimoFreeApiKey : settings.mimoApiKey) || "").trim();
+    if (!mimoKey) {
+      ttsLog("❌ 没有配置小米 MiMo API Key");
+      toastr.error("请先在 API 页填写小米 MiMo API Key", "TTS错误");
+      return;
+    }
+  }
   if (engine === "minimax") {
     const hasMmAuth = String(settings.minimaxApiKey || "").trim();
     if (!hasMmAuth) {
@@ -1939,7 +2192,7 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
     return;
   }
 
-  const engineLabel = { siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio" }[engine] || engine;
+  const engineLabel = { siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio", mimo: "小米 MiMo" }[engine] || engine;
   ttsLog("① 进入生成（" + engineLabel + "），文本长度 " + text.length + "：「" + text.substring(0, 30) + "」");
 
   // 先熄灭其它按钮，再把当前按钮立刻点亮成“生成中（黄）”——任何一次点击都能马上看到反馈
@@ -1954,12 +2207,13 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
     ? (parseFloat($("#volc_speed").val()) || settings.volcSpeed || 1.0)
     : engine === "minimax"
       ? (parseFloat($("#minimax_speed").val()) || settings.minimaxSpeed || 1.0)
-      : engine === "moss" || engine === "fish"
+      : engine === "moss" || engine === "fish" || engine === "mimo"
         ? 1.0
         : (parseFloat($("#tts_speed").val()) || 1.0);
   const gain = engine === "siliconflow" ? (parseFloat($("#tts_gain").val()) || 0) : 0;
   const cacheKey = JSON.stringify({ engine, text, voice: voiceValue, speed, gain,
-    ...(engine === "fish" ? { model: settings.fishModel || defaultSettings.fishModel } : {}) });
+    ...(engine === "fish" ? { model: settings.fishModel || defaultSettings.fishModel } : {}),
+    ...(engine === "mimo" ? { mimoMode: settings.mimoMode, mimoDesign: settings.mimoDesignPrompt, mimoStyle: settings.mimoStylePrompt, mimoClone: settings.mimoCloneName } : {}) });
 
   // 命中缓存：同一段文字 + 同一音色 + 同一语速音量，直接播放，不再请求 API（不扣费）
   const cachedEntry = ttsAudioCache.get(cacheKey);
@@ -2016,6 +2270,11 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
       ttsLog("③ 请求 Fish Audio API 中… reference_id=" + voiceValue);
       audioBlob = await synthesizeFish(text, voiceValue);
       ttsLog("④ Fish Audio 合成完成");
+    } else if (engine === "mimo") {
+      // ---------- 小米 MiMo 分支 ----------
+      ttsLog("③ 请求小米 MiMo API 中… 音色=" + getMimoVoiceLabel(voiceValue) + "（模式 " + getMimoMode() + "）");
+      audioBlob = await synthesizeMimo(text, voiceValue);
+      ttsLog("④ 小米 MiMo 合成完成");
     } else {
       // ---------- 硅基流动分支 ----------
       let voiceParam;
@@ -2088,7 +2347,8 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
 
     const fmt = engine === "siliconflow" ? (settings.responseFormat || "mp3")
       : engine === "moss" ? (settings.mossResponseFormat || "mp3")
-        : "mp3";
+        : engine === "mimo" ? "wav"
+          : "mp3";
     const downloadLink = $(`<a href="${audioUrl}" download="tts_output.${fmt}">下载音频</a>`);
     $("#tts_output").empty().append(downloadLink);
 
@@ -2104,7 +2364,7 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
 
 // ===== 缓存面板：硅基 / 火山 并列显示，可播放 / 下载 / 删除 =====
 // 缓存面板各引擎列的展开状态（默认收起）
-const cachePanelExpanded = { siliconflow: false, volcano: false, minimax: false, moss: false, fish: false };
+const cachePanelExpanded = { siliconflow: false, volcano: false, minimax: false, moss: false, fish: false, mimo: false };
 
 function formatCacheSize(bytes) {
   const mb = bytes / (1024 * 1024);
@@ -2119,10 +2379,11 @@ function renderCachePanel() {
     minimax: $("#sf_cache_list_minimax"),
     moss: $("#sf_cache_list_moss"),
     fish: $("#sf_cache_list_fish"),
+    mimo: $("#sf_cache_list_mimo"),
   };
   if (!lists.siliconflow.length) return;
 
-  const buckets = { siliconflow: [], volcano: [], minimax: [], moss: [], fish: [] };
+  const buckets = { siliconflow: [], volcano: [], minimax: [], moss: [], fish: [], mimo: [] };
   ttsAudioCache.forEach((entry, key) => {
     if (!entry || typeof entry !== "object") return;
     const engine = entry.engine in buckets ? entry.engine : "siliconflow";
@@ -2272,6 +2533,8 @@ function updateEngineUI() {
   $("#sf_engine_minimax").toggle(engine === "minimax");
   $("#sf_engine_moss").toggle(engine === "moss");
   $("#sf_engine_fish").toggle(engine === "fish");
+  $("#sf_engine_mimo").toggle(engine === "mimo");
+  if (engine === "mimo") updateMimoModeUI();
   renderRoleVoiceMap();
 }
 
@@ -4322,6 +4585,8 @@ jQuery(async () => {
       syncMinimaxSettingsFromUi();
     } else if (getEngine() === "moss") {
       syncMossSettingsFromUi();
+    } else if (getEngine() === "mimo") {
+      syncMimoSettingsFromUi();
     } else {
       extension_settings[extensionName].ttsVoice = $("#tts_voice").val();
     }
@@ -4339,13 +4604,53 @@ jQuery(async () => {
     if (pane === "cache") renderCachePanel();
   });
 
+  // ===== 小米 MiMo 绑定 =====
+  $("#mimo_mode").on("change", function() {
+    syncMimoSettingsFromUi();
+    updateMimoModeUI();
+    saveSettingsDebounced();
+  });
+  $("#mimo_voice").on("change", function() {
+    syncMimoSettingsFromUi();
+    renderRoleVoiceMap();
+    saveSettingsDebounced();
+  });
+  $("#mimo_api_key, #mimo_api_host, #mimo_free_api_key, #mimo_style_prompt, #mimo_design_prompt").on("input change", function() {
+    syncMimoSettingsFromUi();
+    saveSettingsDebounced();
+  });
+  $("#mimo_use_free, #mimo_use_proxy").on("change", function() {
+    syncMimoSettingsFromUi();
+    saveSettingsDebounced();
+  });
+  $("#mimo_clone_file").on("change", function() {
+    const f = this.files && this.files[0];
+    handleMimoCloneFile(f);
+    $(this).val("");
+  });
+  $("#test_mimo_connection").on("click", async function() {
+    syncMimoSettingsFromUi();
+    const s = extension_settings[extensionName];
+    const key = String((s.mimoUseFree ? s.mimoFreeApiKey : s.mimoApiKey) || "").trim();
+    if (!key) { toastr.error("请先填写小米 MiMo API Key", "小米 MiMo"); return; }
+    $("#mimo_connection_status").text("测试中…").css("color", "#e0a020");
+    try {
+      const blob = await synthesizeMimo("你好，这是小米 MiMo 语音测试。", getMimoVoiceKey());
+      $("#mimo_connection_status").text("已连接").css("color", "green");
+      toastr.success("小米 MiMo 连接正常（" + (blob.size / 1024).toFixed(1) + " KB）", "小米 MiMo");
+    } catch (e) {
+      $("#mimo_connection_status").text("失败").css("color", "red");
+      toastr.error("连接失败：" + (e && e.message ? e.message : e), "小米 MiMo");
+    }
+  });
+
   // ===== 引擎切换 =====
   $("#tts_engine").on("change", function() {
     const v = $(this).val();
-    extension_settings[extensionName].engine = v === "volcano" || v === "minimax" || v === "moss" || v === "fish" ? v : "siliconflow";
+    extension_settings[extensionName].engine = v === "volcano" || v === "minimax" || v === "moss" || v === "fish" || v === "mimo" ? v : "siliconflow";
     updateEngineUI();
     saveSettingsDebounced();
-    ttsLog("🔀 已切换到「" + ({ siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio" }[getEngine()]) + "」");
+    ttsLog("🔀 已切换到「" + ({ siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio", mimo: "小米 MiMo" }[getEngine()]) + "」");
   });
 
   // ===== 火山设置自动保存 =====
@@ -4720,7 +5025,8 @@ jQuery(async () => {
     if (!entry) return;
     const a = document.createElement("a");
     a.href = entry.url;
-    a.download = `tts_${entry.engine}_${new Date(entry.time).toISOString().replace(/[:.]/g, "-")}.mp3`;
+    const dlExt = entry.engine === "mimo" ? "wav" : "mp3";
+    a.download = `tts_${entry.engine}_${new Date(entry.time).toISOString().replace(/[:.]/g, "-")}.${dlExt}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -4744,7 +5050,7 @@ jQuery(async () => {
       }
     });
     renderCachePanel();
-    const label = { siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio" }[engine] || engine;
+    const label = { siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio", mimo: "小米 MiMo" }[engine] || engine;
     toastr.success(`已清空${label}缓存`, "缓存");
   });
   // 缓存列头点击展开/收起（点到「清空」按钮时不触发）
