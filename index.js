@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.2-mimo";
+const extensionVersion = "2.3.3-mimo";
 
 // 全局状态管理
 const audioState = {
@@ -156,6 +156,8 @@ const defaultSettings = {
   mimoVoice: "mimo_default",
   mimoStylePrompt: "",
   mimoDesignPrompt: "",
+  mimoChunkEnabled: true,   // 长文本分段「边生成边播」：先出声，后面的边合成边续上
+  mimoChunkMaxChars: 300,   // 每段最多多少字（100~1000）
   mimoCloneData: "",
   mimoCloneName: "",
   roleVoiceMapMimo: {}
@@ -1311,6 +1313,23 @@ const MIMO_MODEL_BY_MODE = {
   clone: "mimo-v2.5-tts-voiceclone",
 };
 
+// ===== 长文本分段「边生成边播」（小米 MiMo）=====
+// MiMo 一次只能整段合成，长文本要等一两分钟才出声，所以按句子拆段、逐段合成：
+// 第一段好了就先播，其余边合成边续上。可在面板里关掉或改每段字数。
+const MIMO_CHUNK_DEFAULT_CHARS = 300;
+function isMimoChunkEnabled() {
+  const s = extension_settings[extensionName] || {};
+  return s.mimoChunkEnabled !== false; // 默认开
+}
+function getMimoChunkMaxChars() {
+  const n = Number((extension_settings[extensionName] || {}).mimoChunkMaxChars);
+  return Number.isFinite(n) && n >= 100 ? Math.min(Math.round(n), 1000) : MIMO_CHUNK_DEFAULT_CHARS;
+}
+// 复用火山的句子级切分器，按 UTF-8 字节给上限（中文 1 字约 3 字节）
+function splitMimoText(text) {
+  return splitVolcanoText(text, Math.max(300, getMimoChunkMaxChars() * 3));
+}
+
 function normalizeMimoHost(host) {
   let u = String(host || "").trim().replace(/\/+$/, "");
   if (!u) return MIMO_HOST_OFFICIAL;
@@ -1339,6 +1358,11 @@ function syncMimoSettingsFromUi() {
   if ($("#mimo_voice").length) s.mimoVoice = String($("#mimo_voice").val() || "mimo_default").trim() || "mimo_default";
   if ($("#mimo_style_prompt").length) s.mimoStylePrompt = String($("#mimo_style_prompt").val() || "");
   if ($("#mimo_design_prompt").length) s.mimoDesignPrompt = String($("#mimo_design_prompt").val() || "");
+  if ($("#mimo_chunk_enabled").length) s.mimoChunkEnabled = $("#mimo_chunk_enabled").prop("checked") === true;
+  if ($("#mimo_chunk_max").length) {
+    const n = Number($("#mimo_chunk_max").val());
+    if (Number.isFinite(n) && n >= 100) s.mimoChunkMaxChars = Math.min(Math.round(n), 1000);
+  }
   return s;
 }
 
@@ -1739,6 +1763,8 @@ async function loadSettings() {
   $("#mimo_mode").val(getMimoMode());
   $("#mimo_style_prompt").val(extension_settings[extensionName].mimoStylePrompt || "");
   $("#mimo_design_prompt").val(extension_settings[extensionName].mimoDesignPrompt || "");
+  $("#mimo_chunk_enabled").prop("checked", extension_settings[extensionName].mimoChunkEnabled !== false);
+  $("#mimo_chunk_max").val(getMimoChunkMaxChars());
   buildMimoVoiceOptions();
   updateMimoModeUI();
   updateMimoCloneUI();
@@ -2082,6 +2108,61 @@ function playCachedAudioSequence(urls, buttonElement = null) {
   playAudioUrl(validUrls[0], buttonElement, () => playNextQueuedAudio(sessionId), sessionId);
 }
 
+// 通用「长文本分段合成 + 边生成边播」：第 1 段好了就先播，其余边合成边续上。
+// 队列/会话机制与火山共用，只是把「怎么合成一段」交给调用方（synthesize）。
+async function generateAndPlayChunkedAudio({ engine, label, chunks, voiceValue, cacheKey, fullText, buttonElement, genId = null, synthesize }) {
+  const sessionId = audioState.queueSessionId + 1;
+  audioState.queueSessionId = sessionId;
+  audioState.audioQueue = [];
+  audioState.queueGenerating = true;
+  audioState.queueWaiting = false;
+
+  const urls = [];
+  let totalSize = 0;
+  for (let i = 0; i < chunks.length; i += 1) {
+    try {
+      ttsLog(`③ ${label} 合成第 ${i + 1}/${chunks.length} 段（${chunks[i].length} 字）…`);
+      const blob = await synthesize(chunks[i], i);
+      if (sessionId !== audioState.queueSessionId || (genId !== null && !isTtsGenerationCurrent(genId))) {
+        audioState.queueGenerating = false;
+        return [];
+      }
+      const url = URL.createObjectURL(blob);
+      urls.push(url);
+      totalSize += blob.size || 0;
+      ttsLog(`④ 第 ${i + 1}/${chunks.length} 段合成完成`);
+
+      if (i === 0) {
+        playAudioUrl(url, buttonElement, () => playNextQueuedAudio(sessionId), sessionId);
+      } else {
+        audioState.audioQueue.push(url);
+        if (audioState.queueWaiting) playNextQueuedAudio(sessionId);
+      }
+    } catch (error) {
+      if (i === 0) throw error;
+      ttsLog(`⚠️ ${label} 第 ${i + 1}/${chunks.length} 段生成失败，已跳过：${error?.message || error}`);
+    }
+  }
+
+  if (sessionId !== audioState.queueSessionId || (genId !== null && !isTtsGenerationCurrent(genId))) return [];
+  audioState.queueGenerating = false;
+  if (audioState.queueWaiting) playNextQueuedAudio(sessionId);
+  if (!urls.length) throw new Error(`${label}未生成可播放的音频`);
+
+  ttsAudioCache.set(cacheKey, {
+    url: urls[0],
+    urls,
+    engine,
+    text: fullText.slice(0, 60),
+    voice: voiceValue,
+    size: totalSize,
+    time: Date.now(),
+  });
+  renderCachePanel();
+  ttsLog(`⑤ ${label} 共生成 ${urls.length}/${chunks.length} 段，已加入连续播放队列`);
+  return urls;
+}
+
 async function generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey, fullText, buttonElement, genId = null) {
   const sessionId = audioState.queueSessionId + 1;
   audioState.queueSessionId = sessionId;
@@ -2254,6 +2335,30 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
         const downloadLink = $(`<a href="${firstUrl}" download="tts_output_part_1.mp3">下载音频（第 1 段）</a>`);
         $("#tts_output").empty().append(downloadLink);
         return firstUrl;
+      }
+    }
+
+    // 小米 MiMo：长文本分段「边生成边播」——先出声，后面的边合成边续上
+    if (engine === "mimo" && isMimoChunkEnabled()) {
+      const mimoChunks = splitMimoText(text);
+      if (mimoChunks.length > 1) {
+        ttsLog(`✂ 小米 MiMo 长文本已拆分为 ${mimoChunks.length} 段，边生成边播（先出声）`);
+        toastr.info(`文本较长，已拆分为 ${mimoChunks.length} 段边生成边播`, "小米 MiMo");
+        const chunkUrls = await generateAndPlayChunkedAudio({
+          engine: "mimo",
+          label: "小米 MiMo",
+          chunks: mimoChunks,
+          voiceValue,
+          cacheKey,
+          fullText: text,
+          buttonElement,
+          genId,
+          synthesize: (chunk, i) => synthOnce(cacheKey + "::" + i, () => synthesizeMimo(chunk, voiceValue)),
+        });
+        if (!chunkUrls.length || !isTtsGenerationCurrent(genId)) return;
+        const chunkLink = $(`<a href="${chunkUrls[0]}" download="tts_output_part_1.wav">下载音频（第 1 段，共 ${chunkUrls.length} 段）</a>`);
+        $("#tts_output").empty().append(chunkLink);
+        return chunkUrls[0];
       }
     }
 
@@ -4747,9 +4852,14 @@ jQuery(async () => {
     renderRoleVoiceMap();
     saveSettingsDebounced();
   });
-  $("#mimo_api_key, #mimo_api_host, #mimo_free_api_key, #mimo_style_prompt, #mimo_design_prompt").on("input change", function() {
+  $("#mimo_api_key, #mimo_api_host, #mimo_free_api_key, #mimo_style_prompt, #mimo_design_prompt, #mimo_chunk_max").on("input change", function() {
     syncMimoSettingsFromUi();
     saveSettingsDebounced();
+  });
+  $("#mimo_chunk_enabled").on("change", function() {
+    syncMimoSettingsFromUi();
+    saveSettingsDebounced();
+    ttsLog("小米 MiMo 长文本分段边生成边播：" + ($(this).prop("checked") ? "开" : "关"));
   });
   $("#mimo_use_free, #mimo_use_proxy").on("change", function() {
     syncMimoSettingsFromUi();
