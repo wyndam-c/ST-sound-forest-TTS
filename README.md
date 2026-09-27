@@ -29,12 +29,12 @@
 
 ## 安装
 
-### 方法一：Gitee 下载（国内免登录，推荐）
+### 方法一：GitHub 下载 zip（推荐）
 
 下载 zip：
 
 ```text
-https://gitee.com/lynn/sound-forest-TTS/repository/archive/master.zip
+https://github.com/wyndam-c/ST-sound-forest-TTS/archive/refs/heads/main.zip
 ```
 
 解压后把文件夹重命名为 `ST-sound-forest-TTS`，放到：
@@ -43,10 +43,17 @@ https://gitee.com/lynn/sound-forest-TTS/repository/archive/master.zip
 SillyTavern/data/default-user/extensions/ST-sound-forest-TTS
 ```
 
-### 方法二：GitHub
+### 方法二：git clone（可一键更新）
 
 ```text
-https://github.com/lynn33-2728/sound-forest-TTS
+git clone https://github.com/wyndam-c/ST-sound-forest-TTS
+```
+
+放进 `SillyTavern/data/default-user/extensions/` 下即可。这样以后在酒馆里点「扩展更新」就会直接从这个仓库拉最新版；
+如果之前装的是上游版本（remote 指向 `lynn33-2728/ST-sound-forest-TTS`），把更新路径切过来即可：
+
+```text
+git -C SillyTavern/data/default-user/extensions/ST-sound-forest-TTS remote set-url origin https://github.com/wyndam-c/ST-sound-forest-TTS.git
 ```
 
 然后刷新 SillyTavern 页面，打开「扩展 → 声林 · 多引擎语音（TTS）」配置 API。
