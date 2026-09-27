@@ -4,7 +4,10 @@
 
 一个用于 SillyTavern（酒馆）的多引擎 TTS 语音扩展：一个插件，六个引擎随便切。
 
-> 本二改分支在原有 5 引擎之外**新增「小米 MiMo」**，并把说明同步进了本 README。
+> **本仓库为二改分支**：fork 自 [**@lynn33-2728**](https://github.com/lynn33-2728) 的 [**ST-sound-forest-TTS**](https://github.com/lynn33-2728/ST-sound-forest-TTS)（上游原分支 `main`，共同贡献者）。
+> 上游仓库：https://github.com/lynn33-2728/ST-sound-forest-TTS
+> 上游分支：https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main
+> 本分支在原有 5 引擎之外**新增「小米 MiMo」**，并把说明同步进了本 README。向原作者与所有共同贡献者致谢 🙏
 
 - **硅基流动 SiliconFlow**：CosyVoice2，支持在线克隆音色
 - **火山引擎**：大模型语音合成，内置 100+ 音色（通用 / 角色扮演 / 方言 / 多语种），支持 `ICL_` 声音复刻
@@ -77,11 +80,13 @@ git -C SillyTavern/data/default-user/extensions/ST-sound-forest-TTS remote set-u
 - Fish Audio 先在[官网](https://fish.audio/zh-CN/app/)完成克隆，再到插件点“刷新我的音色”，或手动粘贴音色 ID。测试连接只检查 Key 与音色列表，不需要音色 ID。默认使用 `s2.1-pro-free` 开发者档，失败不会自动切换到付费模型。
 - MiniMax 语音按字符计费；若已订阅 Token Plan，请使用「订阅 Key」填入 API Key 栏。
 
-## 出处与许可
+## 出处与致谢
 
-本项目是 [hjl2004-10/extension](https://github.com/hjl2004-10/extension) 的修改版。
+- **上游原仓库（共同贡献者）**：[lynn33-2728/ST-sound-forest-TTS](https://github.com/lynn33-2728/ST-sound-forest-TTS) —— 本仓库 fork 自它的 `main` 分支，原作者 **[@lynn33-2728](https://github.com/lynn33-2728)**。
+- 上游原分支链接：<https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main>
+- 更早的来源：[hjl2004-10/extension](https://github.com/hjl2004-10/extension)。
 
-原项目版权归原作者所有。修改部分由本仓库维护者添加。项目按 MIT License 发布，详见 [LICENSE](LICENSE)。
+原项目版权归原作者所有，本二改分支保留全部原始署名。新增 / 修改部分由本仓库维护者添加。项目按 MIT License 发布，详见 [LICENSE](LICENSE)。
 
 ---
 
