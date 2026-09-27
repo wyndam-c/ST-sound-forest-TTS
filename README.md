@@ -1,16 +1,17 @@
 # 声林 TTS · 多引擎语音插件 for SillyTavern
 
-> **本仓库为二改分支**（fork 自 [lynn33-2728/sound-forest-TTS](https://github.com/lynn33-2728/ST-sound-forest-TTS)）。
-> 在原有 5 引擎基础上**新增「小米 MiMo TTS」引擎**（`v2.3.0-mimo`，支持预置音色 / 音色设计 / 音色克隆），详见文末「二改说明」。
 
 
-一个用于 SillyTavern（酒馆）的多引擎 TTS 语音扩展：一个插件，五个引擎随便切。
+一个用于 SillyTavern（酒馆）的多引擎 TTS 语音扩展：一个插件，六个引擎随便切。
+
+> 本二改分支在原有 5 引擎之外**新增「小米 MiMo」**，并把说明同步进了本 README。
 
 - **硅基流动 SiliconFlow**：CosyVoice2，支持在线克隆音色
 - **火山引擎**：大模型语音合成，内置 100+ 音色（通用 / 角色扮演 / 方言 / 多语种），支持 `ICL_` 声音复刻
 - **MiniMax**：Speech-2.8 / 2.6 / 02 系列模型，支持声音复刻音色 ID
 - **MOSS**：MOSS-TTS，使用 `voice_id` 合成语音；音色克隆在 Mossland 官网完成
 - **Fish Audio**：S2.1 Pro Free / S2.1 Pro / S2 Pro，读取账号音色或手填 `reference_id`；音色克隆在官网完成
+- **小米 MiMo**（二改新增）：`mimo-v2.5-tts` 系列，支持预置音色 / 音色设计 / 音色克隆，返回 wav；官方与 token-plan 免费通道二选一
 
 本项目基于 [hjl2004-10/extension](https://github.com/hjl2004-10/extension) 修改演进，感谢原作者的项目基础。
 
@@ -21,8 +22,8 @@
 - **文本截取设置各引擎共用**：符号提取、标签块规则、全文发送上限，设一次全都生效
 - **火山长文本自动拆分**：超过单段安全长度时按句子拆开，依次生成并连续播放
 - 自动朗读角色消息（可开关），每条消息旁有手动 ▶ 按钮
-- **缓存面板**：五个引擎的语音缓存并列显示，重听不扣费，可下载 mp3、可单删、可清空
-- 多人角色音色：群聊按角色名分配音色，五个引擎分开存
+- **缓存面板**：六个引擎的语音缓存并列显示，重听不扣费，可下载音频、可单删、可清空
+- 多人角色音色：群聊按角色名分配音色，六个引擎分开存
 - 自绘悬浮进度条：可拖动、可调速、可下载，PC / 平板 / 手机都适配
 - 日志面板：每一步合成过程可见，排查问题不求人
 
@@ -59,6 +60,7 @@ https://github.com/lynn33-2728/sound-forest-TTS
 | MiniMax | API Key（无需 GroupID） | [MiniMax 开放平台](https://platform.minimaxi.com)（账户管理 → 接口密钥） |
 | MOSS | API Key + voice_id | [Moss API 平台](https://platform.mosi.cn/docs/getting-started/auth/) |
 | Fish Audio | API Key + 音色 ID | [Fish Audio 开发者页面](https://fish.audio/zh-CN/developers/) |
+| 小米 MiMo | API Key（可选免费通道 Key） | 小米 MiMo 开放平台 |
 
 说明：
 
