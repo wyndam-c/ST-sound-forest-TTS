@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.5-mimo";
+const extensionVersion = "2.3.6-mimo";
 
 // ===== 立即落盘：ST 的 saveSettingsDebounced 有约 1 秒防抖 =====
 // 点「保存」后如果立刻刷新页面，防抖还没触发 → 这次保存就丢了。
@@ -130,6 +130,8 @@ const defaultSettings = {
   generationFrequency: 5,
   autoPlay: true,
   autoPlayUser: false,
+  autoTestConnection: true,   // 打开面板时自动检测当前引擎的连接
+  connStatus: {},             // 各引擎最近一次连接检测结果 { ok, at, fp }
   barPersistent: true,
   playerBarSize: "small",
   ttsPlaybackRate: 1.0,
@@ -1719,6 +1721,7 @@ async function loadSettings() {
   $("#generation_frequency").val(extension_settings[extensionName].generationFrequency || defaultSettings.generationFrequency);
   $("#auto_play_audio").prop("checked", extension_settings[extensionName].autoPlay !== false);
   $("#auto_play_user").prop("checked", extension_settings[extensionName].autoPlayUser === true);
+  $("#auto_test_connection").prop("checked", extension_settings[extensionName].autoTestConnection !== false);
   $("#tts_enable_extra_text_rules").prop("checked", extension_settings[extensionName].extraTextRulesEnabled === true);
   $("#tts_skip_status_tag").prop("checked", extension_settings[extensionName].skipStatusTagEnabled !== false);
   $("#tts_read_untagged_with_required").prop("checked", extension_settings[extensionName].readUntaggedWithRequired === true);
@@ -1794,6 +1797,9 @@ async function loadSettings() {
   updateEngineUI();
 
   updateVoiceOptions();
+
+  // 打开面板后自动检测一次当前引擎的连接（延迟一点，等界面就绪）
+  setTimeout(() => autoProbeConnection(getEngine(), "打开面板"), 1500);
 }
 
 // 更新音色选项
@@ -2070,6 +2076,7 @@ function saveSettings() {
   extension_settings[extensionName].generationFrequency = parseInt($("#generation_frequency").val());
   extension_settings[extensionName].autoPlay = $("#auto_play_audio").prop("checked");
   extension_settings[extensionName].autoPlayUser = $("#auto_play_user").prop("checked");
+  extension_settings[extensionName].autoTestConnection = $("#auto_test_connection").prop("checked") !== false;
   // 引擎与火山设置
   const selectedEngine = $("#tts_engine").val();
   extension_settings[extensionName].engine = selectedEngine === "volcano" || selectedEngine === "minimax" || selectedEngine === "moss" || selectedEngine === "fish" || selectedEngine === "mimo" ? selectedEngine : "siliconflow";
@@ -2091,6 +2098,120 @@ function saveSettings() {
 }
 
 // 测试连接
+// ===== 打开面板 / 切换引擎时自动检测连接 =====
+// 以前状态栏默认红字「未连接」，只有手点「测试连接」才变绿，看着像没连上。
+// 现在：自动测一次当前引擎，结果写进状态栏；成功后 30 分钟内不重复检测（省请求、省钱）。
+// 检测期间静音 toast、不试听，不会打扰正常朗读。
+let silentProbe = false;
+
+const CONN_PROBE_MAP = {
+  siliconflow: { btn: "#test_siliconflow_connection", status: "#connection_status", name: "硅基流动" },
+  volcano: { btn: "#test_volcano_connection", status: "#volc_connection_status", name: "火山引擎" },
+  minimax: { btn: "#test_minimax_connection", status: "#minimax_connection_status", name: "MiniMax" },
+  moss: { btn: "#test_moss_connection", status: "#moss_connection_status", name: "MOSS" },
+  fish: { btn: "#test_fish_connection", status: "#fish_connection_status", name: "Fish Audio" },
+  mimo: { btn: "#test_mimo_connection", status: "#mimo_connection_status", name: "小米 MiMo" },
+};
+const CONN_PROBE_TTL_MS = 30 * 60 * 1000;
+
+// 取该引擎"用来连的凭据"（只用于判断凭据有没有变，不保存原文）
+function connCredentialText(engine) {
+  const s = extension_settings[extensionName] || {};
+  switch (engine) {
+    case "siliconflow": return String(s.apiKey || "");
+    case "volcano": return String(s.volcAppId || "") + "|" + String(s.volcAccessKey || "");
+    case "minimax": return String(s.minimaxApiKey || "") + "|" + String(s.minimaxGroupId || "");
+    case "moss": return String(s.mossApiKey || "") + "|" + String(s.mossApiHost || "");
+    case "fish": return String(s.fishApiKey || "");
+    case "mimo": return String((s.mimoUseFree ? s.mimoFreeApiKey : s.mimoApiKey) || "") + "|" + String(s.mimoApiHost || "");
+    default: return "";
+  }
+}
+
+function connFingerprint(engine) {
+  const raw = connCredentialText(engine).replace(/\|/g, "").trim();
+  if (!raw) return "";
+  let h = 5381;
+  for (let i = 0; i < raw.length; i += 1) h = ((h << 5) + h + raw.charCodeAt(i)) >>> 0;
+  return raw.length + "-" + h.toString(36);
+}
+
+function formatConnClock(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, "0");
+  return p(d.getHours()) + ":" + p(d.getMinutes());
+}
+
+// 检测期间把 toastr 静音（检测完立刻恢复），避免自动检测弹出提示打扰人
+function muteToastrDuringProbe() {
+  let t = null;
+  try { t = toastr; } catch (e) { t = null; }
+  if (!t) return () => {};
+  const saved = { error: t.error, success: t.success, info: t.info, warning: t.warning };
+  t.error = () => {};
+  t.success = () => {};
+  t.info = () => {};
+  t.warning = () => {};
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    t.error = saved.error; t.success = saved.success; t.info = saved.info; t.warning = saved.warning;
+  };
+}
+
+function autoProbeConnection(engine = getEngine(), reason = "") {
+  try {
+    const s = extension_settings[extensionName] || (extension_settings[extensionName] = {});
+    if (s.autoTestConnection === false) return;
+    const meta = CONN_PROBE_MAP[engine];
+    if (!meta) return;
+    const $status = $(meta.status);
+    if (!$status.length) return;
+
+    const fp = connFingerprint(engine);
+    if (!fp) {
+      $status.text("未填凭据").css("color", "#999");
+      return;
+    }
+
+    const cached = (s.connStatus || {})[engine];
+    if (cached && cached.ok && cached.fp === fp && Date.now() - cached.at < CONN_PROBE_TTL_MS) {
+      $status.text("已连接").css("color", "green");
+      ttsLog(`🔌 ${meta.name}：${formatConnClock(cached.at)} 检测过，30 分钟内不重复检测`);
+      return;
+    }
+
+    ttsLog(`🔌 ${reason ? reason + "，" : ""}自动检测「${meta.name}」连接…`);
+    const restoreToastr = muteToastrDuringProbe();
+    silentProbe = true;
+    let finished = false;
+    const finish = (text) => {
+      if (finished) return;
+      finished = true;
+      clearInterval(timer);
+      silentProbe = false;
+      restoreToastr();
+      const ok = /已连接/.test(String(text || ""));
+      if (!s.connStatus) s.connStatus = {};
+      s.connStatus[engine] = { ok, at: ok ? Date.now() : 0, fp };
+      saveSettingsDebounced();
+      ttsLog(ok ? `✅ ${meta.name} 连接正常` : `❌ ${meta.name} 连接失败：${text || "无响应"}`);
+    };
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const text = String($status.text() || "").trim();
+      if (text && !/测试中|检测中/.test(text)) finish(text);
+      else if (Date.now() - startedAt > 30000) finish(text);
+    }, 400);
+
+    $(meta.btn).trigger("click");
+  } catch (e) {
+    silentProbe = false;
+    console.warn("[声林TTS] 自动检测连接出错：", e);
+  }
+}
+
 async function testConnection() {
   const apiKey = $("#siliconflow_api_key").val();
   
@@ -4748,6 +4869,12 @@ jQuery(async () => {
     console.log("自动朗读角色消息:", $(this).prop("checked"));
   });
   
+  $("#auto_test_connection").on("change", function() {
+    extension_settings[extensionName].autoTestConnection = $(this).prop("checked") !== false;
+    saveSettingsDebounced();
+    ttsLog("🔌 打开面板时自动检测连接：" + ($(this).prop("checked") ? "开" : "关"));
+    if ($(this).prop("checked")) autoProbeConnection(getEngine(), "手动开启自动检测");
+  });
   $("#auto_play_user").on("change", function() {
     extension_settings[extensionName].autoPlayUser = $(this).prop("checked");
     saveSettingsDebounced();
@@ -4965,6 +5092,7 @@ jQuery(async () => {
     updateEngineUI();
     saveSettingsDebounced();
     ttsLog("🔀 已切换到「" + ({ siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio", mimo: "小米 MiMo" }[getEngine()]) + "」");
+    autoProbeConnection(getEngine(), "切换引擎后");
   });
 
   // ===== 火山设置自动保存 =====
@@ -5039,19 +5167,22 @@ jQuery(async () => {
 
   // 火山测试连接：合成一句短文本并播放
   $("#test_volcano_connection").on("click", async function() {
-    primeAudioOnce();
+    const silent = silentProbe; // 自动检测时不试听、不弹窗
+    if (!silent) primeAudioOnce();
     const status = $("#volc_connection_status");
     status.text("测试中…").css("color", "#ffd54a");
     try {
       const blob = await synthesizeVolcano("你好，火山引擎连接成功。", getVolcSpeaker(), parseFloat($("#volc_speed").val()) || 1.0);
-      audioState.genId += 1; // 试听 = 最新意图，作废在途朗读，别被它抢播
-      playAudioUrl(URL.createObjectURL(blob));
+      if (!silent) {
+        audioState.genId += 1; // 试听 = 最新意图，作废在途朗读，别被它抢播
+        playAudioUrl(URL.createObjectURL(blob));
+      }
       status.text("已连接").css("color", "green");
       ttsLog("✅ 火山引擎连接成功");
     } catch (e) {
       status.text("未连接").css("color", "red");
       ttsLog("❌ 火山引擎连接失败：" + (e && e.message ? e.message : e));
-      toastr.error(e && e.message ? e.message : String(e), "火山引擎连接失败");
+      if (!silent) toastr.error(e && e.message ? e.message : String(e), "火山引擎连接失败");
     }
   });
 
@@ -5161,21 +5292,24 @@ jQuery(async () => {
 
   // MiniMax 测试连接：合成一句短文本并播放
   $("#test_minimax_connection").on("click", async function() {
-    primeAudioOnce();
+    const silent = silentProbe; // 自动检测时不试听、不弹窗
+    if (!silent) primeAudioOnce();
     syncMinimaxSettingsFromUi();
     saveSettingsDebounced();
     const status = $("#minimax_connection_status");
     status.text("测试中…").css("color", "#ffd54a");
     try {
       const blob = await synthesizeMinimax("你好，MiniMax 连接成功。", getMinimaxVoice(), parseFloat($("#minimax_speed").val()) || 1.0);
-      audioState.genId += 1; // 试听 = 最新意图，作废在途朗读，别被它抢播
-      playAudioUrl(URL.createObjectURL(blob));
+      if (!silent) {
+        audioState.genId += 1; // 试听 = 最新意图，作废在途朗读，别被它抢播
+        playAudioUrl(URL.createObjectURL(blob));
+      }
       status.text("已连接").css("color", "green");
       ttsLog("✅ MiniMax 连接成功");
     } catch (e) {
       status.text("未连接").css("color", "red");
       ttsLog("❌ MiniMax 连接失败：" + (e && e.message ? e.message : e));
-      toastr.error(e && e.message ? e.message : String(e), "MiniMax 连接失败");
+      if (!silent) toastr.error(e && e.message ? e.message : String(e), "MiniMax 连接失败");
     }
   });
 
