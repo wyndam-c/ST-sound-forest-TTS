@@ -88,6 +88,7 @@ git -C SillyTavern/data/default-user/extensions/ST-sound-forest-TTS remote set-u
   - 上游原分支链接：<https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main>
 - **三改（本仓库）**：**[@wyndam-c](https://github.com/wyndam-c)** —— 新增「小米 MiMo TTS」引擎，并做自动播放 / 播放速度 / 保存反馈等修复优化。
 - 更早的基础项目：[hjl2004-10/extension](https://github.com/hjl2004-10/extension)（MIT，声明一并保留）。
+  - 注：**hjl2004-10 与原作者 @herdream 不是同一个人**，它属于插件所基于的更早基础项目，与上面的「原作者 → 二改 → 三改」署名链并列。
 
 ### 内容授权（Content License）
 
