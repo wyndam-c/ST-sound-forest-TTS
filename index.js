@@ -4,7 +4,30 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.4-mimo";
+const extensionVersion = "2.3.5-mimo";
+
+// ===== 立即落盘：ST 的 saveSettingsDebounced 有约 1 秒防抖 =====
+// 点「保存」后如果立刻刷新页面，防抖还没触发 → 这次保存就丢了。
+// 所以这里额外拿一份 ST 的立即保存（saveSettings）来用：
+//  - 用动态 import，老版本 ST 没有这个导出也不会把扩展整挂；
+//  - 点保存按钮时 await 一次，保证真的写进服务器；
+//  - 页面要关/刷新前再兜一次。
+let stFlushSettings = null;
+import("../../../../script.js")
+  .then((m) => { stFlushSettings = typeof m.saveSettings === "function" ? m.saveSettings : null; })
+  .catch(() => { stFlushSettings = null; });
+
+async function flushSettingsNow() {
+  try {
+    if (typeof stFlushSettings === "function") {
+      await stFlushSettings();
+      return true;
+    }
+  } catch (e) {
+    console.warn("[声林TTS] 立即保存失败，已退回防抖保存：", e);
+  }
+  return false;
+}
 
 // 全局状态管理
 const audioState = {
@@ -4679,16 +4702,23 @@ jQuery(async () => {
     });
   }, 100);
   
+  // 页面刷新/关闭前，尽力把待写入的设置冲一次（防抖窗口内刷新会丢）
+  window.addEventListener("beforeunload", () => {
+    try { if (typeof stFlushSettings === "function") stFlushSettings(); } catch (e) { /* 忽略 */ }
+  });
+
   // 绑定事件
   // 「保存设置」：委托绑定（元素晚渲染也不会失效）+ 保存后给看得见的反馈
-  $(document).on("click", "#save_siliconflow_settings", function() {
+  $(document).on("click", "#save_siliconflow_settings", async function() {
     const $btn = $(this);
     try {
       primeAudioOnce?.(); // 顺手解锁一次音频（若可用）
     } catch (e) { /* 忽略 */ }
     try {
       saveSettings();
-      flashSaveFeedback($btn, "✅ 已保存", false);
+      const flushed = await flushSettingsNow();
+      ttsLog(flushed ? "💾 设置已立即写入服务器" : "💾 设置已保存（防抖写入）");
+      flashSaveFeedback($btn, flushed ? "✅ 已保存到服务器" : "✅ 已保存", false);
     } catch (err) {
       console.error("[声林TTS] 保存设置失败：", err);
       ttsLog("❌ 保存设置失败：" + (err && err.message ? err.message : err));
@@ -4822,11 +4852,13 @@ jQuery(async () => {
   });
 
   // ===== 保存API设置按钮（三引擎通用） =====
-  $(document).on("click", ".sf-save-api-settings", function() {
+  $(document).on("click", ".sf-save-api-settings", async function() {
     const $btn = $(this);
     try {
       saveApiSettings();
-      flashSaveFeedback($btn, "✅ 已保存", false);
+      const flushedApi = await flushSettingsNow();
+      ttsLog(flushedApi ? "💾 API 设置已立即写入服务器" : "💾 API 设置已保存（防抖写入）");
+      flashSaveFeedback($btn, flushedApi ? "✅ 已保存到服务器" : "✅ 已保存", false);
     } catch (err) {
       console.error("[声林TTS] 保存API设置失败：", err);
       ttsLog("❌ 保存API设置失败：" + (err && err.message ? err.message : err));
