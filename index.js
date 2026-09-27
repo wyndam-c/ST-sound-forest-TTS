@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.0-mimo";
+const extensionVersion = "2.3.1-mimo";
 
 // 全局状态管理
 const audioState = {
@@ -18,6 +18,8 @@ const audioState = {
   queueSessionId: 0,
   queueGenerating: false,
   queueWaiting: false,
+  genId: 0,                  // 朗读「代次」：每次新朗读 +1，旧请求迟到的结果一律丢弃
+  inflightSynth: new Map(),  // 同一段文字正在合成时复用它，避免重复请求/重复播放
 };
 
 // TTS 音频缓存：同一段文字只生成一次，之后“再听一次”直接放缓存，不再请求 API（不扣费）
@@ -2080,7 +2082,7 @@ function playCachedAudioSequence(urls, buttonElement = null) {
   playAudioUrl(validUrls[0], buttonElement, () => playNextQueuedAudio(sessionId), sessionId);
 }
 
-async function generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey, fullText, buttonElement) {
+async function generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey, fullText, buttonElement, genId = null) {
   const sessionId = audioState.queueSessionId + 1;
   audioState.queueSessionId = sessionId;
   audioState.audioQueue = [];
@@ -2093,7 +2095,7 @@ async function generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey,
     try {
       ttsLog(`③ 火山引擎合成第 ${i + 1}/${chunks.length} 段… 音色=${voiceValue}`);
       const blob = await synthesizeVolcano(chunks[i], voiceValue, speed);
-      if (sessionId !== audioState.queueSessionId) {
+      if (sessionId !== audioState.queueSessionId || (genId !== null && !isTtsGenerationCurrent(genId))) {
         audioState.queueGenerating = false;
         return;
       }
@@ -2114,7 +2116,7 @@ async function generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey,
     }
   }
 
-  if (sessionId !== audioState.queueSessionId) return;
+  if (sessionId !== audioState.queueSessionId || (genId !== null && !isTtsGenerationCurrent(genId))) return;
   audioState.queueGenerating = false;
   if (audioState.queueWaiting) playNextQueuedAudio(sessionId);
 
@@ -2194,6 +2196,8 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
 
   const engineLabel = { siliconflow: "硅基流动", volcano: "火山引擎", minimax: "MiniMax", moss: "MOSS", fish: "Fish Audio", mimo: "小米 MiMo" }[engine] || engine;
   ttsLog("① 进入生成（" + engineLabel + "），文本长度 " + text.length + "：「" + text.substring(0, 30) + "」");
+  // 新的一次朗读开始：领代次号，并立刻停掉上一段（治好「自动播放的是上一段」的关键）
+  const genId = beginTtsGeneration();
 
   // 先熄灭其它按钮，再把当前按钮立刻点亮成“生成中（黄）”——任何一次点击都能马上看到反馈
   $(".tts-manual-play-btn").removeClass("tts-loading tts-playing");
@@ -2241,8 +2245,12 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
       if (chunks.length > 1) {
         ttsLog(`✂ 火山文本较长，已按安全长度拆分为 ${chunks.length} 段，将连续播放`);
         toastr.info(`文本较长，已拆分为 ${chunks.length} 段连续播放`, "火山引擎");
-        const firstUrl = await generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey, text, buttonElement);
+        const firstUrl = await generateAndPlayVolcanoChunks(chunks, voiceValue, speed, cacheKey, text, buttonElement, genId);
         if (!firstUrl) return;
+        if (!isTtsGenerationCurrent(genId)) {
+          ttsLog("⏭ 已有更新的一次朗读，丢弃本次分段结果");
+          return;
+        }
         const downloadLink = $(`<a href="${firstUrl}" download="tts_output_part_1.mp3">下载音频（第 1 段）</a>`);
         $("#tts_output").empty().append(downloadLink);
         return firstUrl;
@@ -2254,26 +2262,26 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
     if (engine === "volcano") {
       // ---------- 火山引擎分支 ----------
       ttsLog("③ 请求火山引擎 API 中… 音色=" + voiceValue);
-      audioBlob = await synthesizeVolcano(text, voiceValue, speed);
+      audioBlob = await synthOnce(cacheKey, () => synthesizeVolcano(text, voiceValue, speed));
       ttsLog("④ 火山引擎合成完成");
     } else if (engine === "minimax") {
       // ---------- MiniMax 分支 ----------
       ttsLog("③ 请求 MiniMax API 中… 音色=" + voiceValue);
-      audioBlob = await synthesizeMinimax(text, voiceValue, speed);
+      audioBlob = await synthOnce(cacheKey, () => synthesizeMinimax(text, voiceValue, speed));
       ttsLog("④ MiniMax 合成完成");
     } else if (engine === "moss") {
       // ---------- MOSS 分支 ----------
       ttsLog("③ 请求 MOSS API 中… voice_id=" + voiceValue);
-      audioBlob = await synthesizeMoss(text, voiceValue);
+      audioBlob = await synthOnce(cacheKey, () => synthesizeMoss(text, voiceValue));
       ttsLog("④ MOSS 合成完成");
     } else if (engine === "fish") {
       ttsLog("③ 请求 Fish Audio API 中… reference_id=" + voiceValue);
-      audioBlob = await synthesizeFish(text, voiceValue);
+      audioBlob = await synthOnce(cacheKey, () => synthesizeFish(text, voiceValue));
       ttsLog("④ Fish Audio 合成完成");
     } else if (engine === "mimo") {
       // ---------- 小米 MiMo 分支 ----------
       ttsLog("③ 请求小米 MiMo API 中… 音色=" + getMimoVoiceLabel(voiceValue) + "（模式 " + getMimoMode() + "）");
-      audioBlob = await synthesizeMimo(text, voiceValue);
+      audioBlob = await synthOnce(cacheKey, () => synthesizeMimo(text, voiceValue));
       ttsLog("④ 小米 MiMo 合成完成");
     } else {
       // ---------- 硅基流动分支 ----------
@@ -2343,6 +2351,11 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
     });
     renderCachePanel();
 
+    // 迟到的旧结果直接丢弃：只允许「最新一次朗读」出声
+    if (!isTtsGenerationCurrent(genId)) {
+      ttsLog("⏭ 已有更新的一次朗读，丢弃本次结果（不再播放）");
+      return;
+    }
     playAudioUrl(audioUrl, buttonElement);
 
     const fmt = engine === "siliconflow" ? (settings.responseFormat || "mp3")
@@ -2355,7 +2368,7 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
     console.log("语音生成成功！");
     return audioUrl;
   } catch (error) {
-    resetPlayState();
+    if (isTtsGenerationCurrent(genId)) resetPlayState();
     ttsLog("❌ 出错：" + (error && error.message ? error.message : error));
     console.error("TTS Error:", error);
     toastr.error(`语音生成失败: ${error.message}`, "TTS错误");
@@ -2897,6 +2910,7 @@ function getTtsAudioEl() {
           toastr.info("还没有可播放的语音，先点消息旁边的播放三角形生成一次。", "TTS");
         }
       } else {
+        audioState.genId += 1; // 用户手动暂停 = 别再让在途合成冒出来播
         audio.pause();
       }
       updateFloatingPlayerUI();
@@ -3271,6 +3285,56 @@ function resetPlayState() {
   audioState.playingButton = null;
 }
 
+// ===== 朗读「代次」管理（修复：自动播放播的是上一段） =====
+// 每次开始一段新朗读都领一个递增编号。旧的请求就算合成得慢（几十秒后才返回），
+// 也不许再抢着播放——否则新消息来了，听到的却是上一段的声音。
+function beginTtsGeneration() {
+  const genId = audioState.genId + 1;
+  audioState.genId = genId;
+  // 立刻停掉正在播的旧音频，并作废旧的分段播放队列
+  try { if (audioState.currentAudio) audioState.currentAudio.pause(); } catch (e) {}
+  audioState.queueSessionId += 1;
+  audioState.audioQueue = [];
+  audioState.queueGenerating = false;
+  audioState.queueWaiting = false;
+  audioState.isPlaying = false;
+  return genId;
+}
+
+// 这次朗读还算数吗？（被更新的一次朗读顶掉后就不算了）
+function isTtsGenerationCurrent(genId) {
+  return genId === audioState.genId;
+}
+
+// 同一段文字正在合成时，后面再点 ▶ / 自动朗读直接复用这次请求：省额度，也不会重复播放
+function synthOnce(key, factory) {
+  const running = audioState.inflightSynth.get(key);
+  if (running) {
+    ttsLog("♻ 这段文字正在合成，复用进行中的请求");
+    return running;
+  }
+  const task = (async () => {
+    try { return await factory(); }
+    finally { audioState.inflightSynth.delete(key); }
+  })();
+  audioState.inflightSynth.set(key, task);
+  return task;
+}
+
+// 记住「当前聊天最后一条消息」= 已处理。
+// 重新载入历史、切换聊天时，SillyTavern 会把历史消息再渲染一遍，以前会因此
+// 触发一次自动朗读，把上一段已经加载好（缓存里）的音频又播出来。
+function markChatHistoryAsProcessed(reason = "") {
+  try {
+    const chat = getContext()?.chat;
+    if (Array.isArray(chat) && chat.length > 0) {
+      audioState.lastProcessedMessageId = chat.length - 1;
+      audioState.lastProcessedUserMessageId = chat.length - 1;
+      if (reason) ttsLog("🔇 已跳过历史消息的自动朗读（" + reason + "）");
+    }
+  } catch (e) {}
+}
+
 // 三种外观：idle 待机 / loading 加载中 / playing 播放中
 // 注入一次性的高优先级样式（带 !important，确保一定可见）
 function injectTTSStyle() {
@@ -3421,6 +3485,7 @@ function bindPlayButtonDelegation() {
       // 再点正在播放的按钮 = 停止
       if (audioState.playingButton && audioState.playingButton[0] === playBtn[0]) {
         ttsLog("⏹ 再次点击 → 停止");
+        audioState.genId += 1; // 作废还在合成的请求，别等它合成完又冒出来播
         if (audioState.currentAudio) audioState.currentAudio.pause();
         resetPlayState();
         return;
@@ -3873,13 +3938,24 @@ function setupMessageListener() {
     console.log('角色消息渲染:', messageId);
     
     // 防止重复处理同一条消息
-    if (audioState.lastProcessedMessageId === messageId) {
+    if (String(audioState.lastProcessedMessageId) === String(messageId)) {
       console.log('消息已处理，跳过:', messageId);
       return;
     }
     
     console.log('新消息，准备处理:', messageId);
     
+    // 只自动朗读「聊天里的最后一条消息」。
+    // 编辑旧消息 / 重画 / 重载历史同样会触发渲染事件，但它们不是新回复——
+    // 以前会因此把上一段已经加载好的音频再播一遍（「自动播放的是上一段」就是这么来的）。
+    try {
+      const chat = getContext()?.chat;
+      if (Array.isArray(chat) && chat.length > 0 && Number(messageId) !== chat.length - 1) {
+        console.log('不是最后一条消息，跳过自动朗读:', messageId);
+        return;
+      }
+    } catch (e) {}
+
     // 检查是否开启自动朗读
     const autoPlay = $("#auto_play_audio").prop("checked");
     if (!autoPlay) {
@@ -3896,7 +3972,7 @@ function setupMessageListener() {
     audioState.processingTimeout = setTimeout(() => {
       console.log('延时处理开始:', messageId);
       // 再次检查是否已处理
-      if (audioState.lastProcessedMessageId === messageId) {
+      if (String(audioState.lastProcessedMessageId) === String(messageId)) {
         console.log('消息在延迟期间已被处理，跳过');
         return;
       }
@@ -4019,7 +4095,7 @@ function setupMessageListener() {
     console.log('用户消息渲染:', messageId);
     
     // 防止重复处理同一条用户消息
-    if (audioState.lastProcessedUserMessageId === messageId) {
+    if (String(audioState.lastProcessedUserMessageId) === String(messageId)) {
       console.log('用户消息已处理，跳过:', messageId);
       return;
     }
@@ -4152,6 +4228,10 @@ function setupMessageListener() {
   });
   if (event_types.CHAT_CHANGED) {
     eventSource.on(event_types.CHAT_CHANGED, () => {
+      // 换聊天/载入：作废在途朗读，并把历史最后一条标记为已处理，避免一进来就自动播上一段
+      audioState.genId += 1;
+      resetPlayState();
+      [0, 600, 1500].forEach((ms) => setTimeout(() => markChatHistoryAsProcessed("切换聊天"), ms));
       setTimeout(injectPlayButton, 300);
       setTimeout(ensurePersistentPlayerBar, 350);
     });
@@ -4730,6 +4810,7 @@ jQuery(async () => {
     status.text("测试中…").css("color", "#ffd54a");
     try {
       const blob = await synthesizeVolcano("你好，火山引擎连接成功。", getVolcSpeaker(), parseFloat($("#volc_speed").val()) || 1.0);
+      audioState.genId += 1; // 试听 = 最新意图，作废在途朗读，别被它抢播
       playAudioUrl(URL.createObjectURL(blob));
       status.text("已连接").css("color", "green");
       ttsLog("✅ 火山引擎连接成功");
@@ -4853,6 +4934,7 @@ jQuery(async () => {
     status.text("测试中…").css("color", "#ffd54a");
     try {
       const blob = await synthesizeMinimax("你好，MiniMax 连接成功。", getMinimaxVoice(), parseFloat($("#minimax_speed").val()) || 1.0);
+      audioState.genId += 1; // 试听 = 最新意图，作废在途朗读，别被它抢播
       playAudioUrl(URL.createObjectURL(blob));
       status.text("已连接").css("color", "green");
       ttsLog("✅ MiniMax 连接成功");
@@ -5017,6 +5099,7 @@ jQuery(async () => {
     const entry = ttsAudioCache.get($(this).closest(".sf-cache-row").attr("data-key"));
     if (entry) {
       primeAudioOnce();
+      audioState.genId += 1; // 手动放缓存 = 最新意图，作废在途朗读，别被它抢播
       playAudioUrl(entry.url);
     }
   });
@@ -5077,6 +5160,10 @@ jQuery(async () => {
   
   // 设置消息监听器
   setupMessageListener();
+
+  // 载入页面时把「当前聊天历史最后一条」记为已处理：
+  // 重载历史会重新渲染消息，不标记的话一进来就会自动朗读上一条（播放已缓存的上一段音频）
+  [600, 1600].forEach((ms) => setTimeout(() => markChatHistoryAsProcessed("页面载入"), ms));
 
   // 注入按钮高亮样式
   injectTTSStyle();
