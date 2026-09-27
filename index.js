@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.1-mimo";
+const extensionVersion = "2.3.2-mimo";
 
 // 全局状态管理
 const audioState = {
@@ -2622,18 +2622,37 @@ function updateFloatingPlayerUI() {
   if (fill) fill.style.width = `${percent}%`;
 }
 
+// 常用播放倍速档位（本地变速，不重新合成、不额外扣费）
+const TTS_SPEED_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
+function formatTtsRateLabel(rate) {
+  const n = Number(rate) || 1;
+  return (Math.abs(n - Math.round(n)) < 1e-6 ? n.toFixed(1) : n.toFixed(2)) + "x";
+}
+
 function setTtsPlaybackRate(rate) {
   const safeRate = Number(rate) || 1;
   extension_settings[extensionName].ttsPlaybackRate = safeRate;
   saveSettingsDebounced();
   if (ttsAudioEl) ttsAudioEl.playbackRate = safeRate;
   document.querySelectorAll(".tts-speed-item").forEach((item) => {
-    item.style.color = Number(item.dataset.rate) === safeRate ? "#ffd54a" : "#fff";
+    const on = Math.abs(Number(item.dataset.rate) - safeRate) < 1e-6;
+    item.style.color = on ? "#1b1b1b" : "#fff";
+    item.style.background = on ? "#ffd54a" : "rgba(255,255,255,0.16)";
   });
   const speedRange = document.getElementById("tts-player-speed-range");
   const speedValue = document.getElementById("tts-player-speed-value");
   if (speedRange) speedRange.value = String(safeRate);
-  if (speedValue) speedValue.textContent = `${safeRate.toFixed(2)}x`;
+  if (speedValue) speedValue.textContent = formatTtsRateLabel(safeRate);
+  const speedChip = document.getElementById("tts-player-speed-chip");
+  if (speedChip) speedChip.textContent = formatTtsRateLabel(safeRate);
+  return safeRate;
+}
+
+// 点一下倍速小按钮：按档位往上跳，到顶从 1.0x 重新开始
+function cycleTtsPlaybackRate() {
+  const cur = Number(extension_settings[extensionName].ttsPlaybackRate) || 1;
+  const next = TTS_SPEED_STEPS.find((r) => r > cur + 1e-6);
+  return setTtsPlaybackRate(next === undefined ? TTS_SPEED_STEPS[0] : next);
 }
 
 function downloadLastTtsAudio() {
@@ -2940,6 +2959,20 @@ function getTtsAudioEl() {
       updateFloatingPlayerUI();
     });
 
+    // 播放条上的倍速小按钮：点一下往上跳一档（1.0 → 1.25 → 1.5 → 2 → 2.5 → 3 → 回 1.0）
+    const speedChip = document.createElement("span");
+    speedChip.id = "tts-player-speed-chip";
+    speedChip.title = "播放速度（点一下切换，本地变速、不重新合成）";
+    speedChip.textContent = formatTtsRateLabel(extension_settings[extensionName].ttsPlaybackRate || 1);
+    speedChip.style.cssText =
+      "color:#fff;background:rgba(255,255,255,0.16);border-radius:6px;padding:3px 7px;" +
+      "cursor:pointer;font-size:12px;line-height:1;flex:0 0 auto;user-select:none;";
+    speedChip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const next = cycleTtsPlaybackRate();
+      ttsLog("⏩ 播放速度 " + formatTtsRateLabel(next));
+    });
+
     ["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "pause", "ended", "emptied"].forEach((eventName) => {
       ttsAudioEl.addEventListener(eventName, updateFloatingPlayerUI);
     });
@@ -3039,13 +3072,31 @@ function getTtsAudioEl() {
     speedRange.id = "tts-player-speed-range";
     speedRange.type = "range";
     speedRange.min = "0.5";
-    speedRange.max = "2";
+    speedRange.max = "3";
     speedRange.step = "0.01";
     speedRange.value = String(extension_settings[extensionName].ttsPlaybackRate || 1);
     speedRange.style.cssText = "width:160px;margin:0;";
     speedRange.addEventListener("input", () => setTtsPlaybackRate(parseFloat(speedRange.value)));
     speedControl.appendChild(speedRange);
     menu.appendChild(speedControl);
+
+    // 快捷倍速小按钮：一按即换，比拖滑杆快（播放速度是本地变速，不重新合成、不额外扣费）
+    const speedPresets = document.createElement("div");
+    speedPresets.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;padding:2px 14px 8px;";
+    TTS_SPEED_STEPS.forEach((r) => {
+      const chip = document.createElement("span");
+      chip.className = "tts-speed-item";
+      chip.dataset.rate = String(r);
+      chip.textContent = formatTtsRateLabel(r);
+      chip.style.cssText = "color:#fff;background:rgba(255,255,255,0.16);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;line-height:1;flex:0 0 auto;";
+      chip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setTtsPlaybackRate(r);
+        ttsLog("⏩ 播放速度改为 " + formatTtsRateLabel(r));
+      });
+      speedPresets.appendChild(chip);
+    });
+    menu.appendChild(speedPresets);
     setTtsPlaybackRate(extension_settings[extensionName].ttsPlaybackRate || 1);
 
     menuBtn.addEventListener("click", (e) => {
@@ -3075,6 +3126,7 @@ function getTtsAudioEl() {
     bar.appendChild(playBtn);
     bar.appendChild(timeText);
     bar.appendChild(progress);
+    bar.appendChild(speedChip);
     bar.appendChild(ttsAudioEl);
     bar.appendChild(versionTag);
     bar.appendChild(menuBtn);
