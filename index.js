@@ -4,7 +4,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 // 扩展配置：按实际安装文件夹自动识别，避免仓库名改了以后找不到 example.html
 const extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 const extensionName = decodeURIComponent(extensionFolderPath.split("/").pop() || "ST-sound-forest-TTS");
-const extensionVersion = "2.3.6-mimo";
+const extensionVersion = "2.3.7-mimo";
 
 // ===== 立即落盘：ST 的 saveSettingsDebounced 有约 1 秒防抖 =====
 // 点「保存」后如果立刻刷新页面，防抖还没触发 → 这次保存就丢了。
@@ -1646,30 +1646,48 @@ const legacySettingKeys = [
   "st-sound-forest-tts",
 ];
 
-async function loadSettings() {
-  extension_settings[extensionName] = extension_settings[extensionName] || {};
+// 判断一个设置值是不是"空配置"（可以安全被旧版设置填补）
+// ⚠️ 布尔/数字即使等于默认值也算"用户的选择"，绝不迁移：
+//    旧插件里存着 autoPlay=false 而本插件默认 true，以前会被搬过来，
+//    导致刷新后「自动朗读角色消息」的勾莫名消失（v2.3.7 修）
+function isBlankSettingValue(v) {
+  if (v === undefined || v === null || v === "") return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === "object") return Object.keys(v).length === 0;
+  return false;
+}
 
-  // 一次性迁移：把旧 key 下已有的字段拷到当前 key（只补缺，不覆盖）
-  let migrated = false;
+// 从旧版 key 迁移设置：只补当前还是空的字段，返回迁移过来的字段名
+function migrateLegacySettings() {
+  const migratedKeys = [];
+  const currentSettings = extension_settings[extensionName] || {};
   for (const legacyKey of legacySettingKeys) {
     if (legacyKey === extensionName) continue;
     const legacy = extension_settings[legacyKey];
     if (!legacy || typeof legacy !== "object") continue;
     for (const [key, value] of Object.entries(legacy)) {
-      const current = extension_settings[extensionName][key];
+      const current = currentSettings[key];
       const hasDefault = Object.prototype.hasOwnProperty.call(defaultSettings, key);
-      const isUntouchedDefault = hasDefault && JSON.stringify(current) === JSON.stringify(defaultSettings[key]);
-      const legacyIsCustom = !hasDefault || JSON.stringify(value) !== JSON.stringify(defaultSettings[key]);
-      // 当前缺失，或当前还是默认值（没动过）而旧值是自定义的，都搬过来
-      if (current === undefined || (isUntouchedDefault && legacyIsCustom)) {
-        extension_settings[extensionName][key] = value;
-        migrated = true;
-      }
+      const currentIsBlank = current === undefined ||
+        (hasDefault && isBlankSettingValue(current) && JSON.stringify(current) === JSON.stringify(defaultSettings[key]));
+      if (!currentIsBlank) continue;          // 当前已有值 → 一律不动（保住用户现在的设置）
+      if (isBlankSettingValue(value)) continue; // 旧值也是空的 → 没意义
+      currentSettings[key] = value;
+      migratedKeys.push(key);
     }
   }
-  if (migrated) {
+  return migratedKeys;
+}
+
+async function loadSettings() {
+  extension_settings[extensionName] = extension_settings[extensionName] || {};
+
+  // 一次性迁移：把旧 key 下已有的字段拷到当前 key
+  const migratedKeys = migrateLegacySettings();
+  if (migratedKeys.length) {
     saveSettingsDebounced();
-    console.log(`[${extensionName}] 已从旧版扩展迁移设置`);
+    console.log(`[${extensionName}] 已从旧版扩展迁移设置：${migratedKeys.join(", ")}`);
+    try { ttsLog("📦 已从旧版扩展迁移设置：" + migratedKeys.join("、")); } catch (e) {}
   }
 
   if (Object.keys(extension_settings[extensionName]).length === 0) {
