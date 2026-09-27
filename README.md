@@ -4,7 +4,8 @@
 
 一个用于 SillyTavern（酒馆）的多引擎 TTS 语音扩展：一个插件，六个引擎随便切。
 
-> **本仓库为二改分支**：fork 自 [**@lynn33-2728**](https://github.com/lynn33-2728) 的 [**ST-sound-forest-TTS**](https://github.com/lynn33-2728/ST-sound-forest-TTS)（上游原分支 `main`，共同贡献者）。
+> **本仓库为三改分支**：**原作者 @herdream（herdream0353） → 二改 [@lynn33-2728](https://github.com/lynn33-2728) → 三改（本仓库）[@wyndam-c](https://github.com/wyndam-c)**。
+> 本仓库 fork 自 [**@lynn33-2728**](https://github.com/lynn33-2728) 的 [**ST-sound-forest-TTS**](https://github.com/lynn33-2728/ST-sound-forest-TTS)（上游原分支 `main`，共同贡献者）。
 > 上游仓库：https://github.com/lynn33-2728/ST-sound-forest-TTS
 > 上游分支：https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main
 > 本分支在原有 5 引擎之外**新增「小米 MiMo」**，并把说明同步进了本 README。向原作者与所有共同贡献者致谢 🙏
@@ -80,19 +81,23 @@ git -C SillyTavern/data/default-user/extensions/ST-sound-forest-TTS remote set-u
 - Fish Audio 先在[官网](https://fish.audio/zh-CN/app/)完成克隆，再到插件点“刷新我的音色”，或手动粘贴音色 ID。测试连接只检查 Key 与音色列表，不需要音色 ID。默认使用 `s2.1-pro-free` 开发者档，失败不会自动切换到付费模型。
 - MiniMax 语音按字符计费；若已订阅 Token Plan，请使用「订阅 Key」填入 API Key 栏。
 
-## 出处与致谢
+## 出处与致谢（原作者 → 二改 → 三改）
 
-- **上游原仓库（共同贡献者）**：[lynn33-2728/ST-sound-forest-TTS](https://github.com/lynn33-2728/ST-sound-forest-TTS) —— 本仓库 fork 自它的 `main` 分支，原作者 **[@lynn33-2728](https://github.com/lynn33-2728)**。
-- 上游原分支链接：<https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main>
-- 更早的来源：[hjl2004-10/extension](https://github.com/hjl2004-10/extension)。
+- **原作者**：**@herdream**（herdream0353）—— 声林 TTS 插件的原作者，原帖按 **CC BY-NC-SA 4.0** 发布。
+- **二改**：**[@lynn33-2728](https://github.com/lynn33-2728)** —— [lynn33-2728/ST-sound-forest-TTS](https://github.com/lynn33-2728/ST-sound-forest-TTS)（本仓库 fork 自它的 `main` 分支，共同贡献者）。
+  - 上游原分支链接：<https://github.com/lynn33-2728/ST-sound-forest-TTS/tree/main>
+- **三改（本仓库）**：**[@wyndam-c](https://github.com/wyndam-c)** —— 新增「小米 MiMo TTS」引擎，并做自动播放 / 播放速度 / 保存反馈等修复优化。
+- 更早的基础项目：[hjl2004-10/extension](https://github.com/hjl2004-10/extension)（MIT，声明一并保留）。
 
-原项目版权归原作者所有，本二改分支保留全部原始署名。许可分两层：
+### 内容授权（Content License）
 
-- **上游代码部分**：MIT License（原始声明完整保留，见 [`LICENSE-MIT`](LICENSE-MIT)）。
-- **本二改分支的新增 / 修改部分**：**CC BY-NC-SA 4.0**（署名 — 非商业性使用 — 相同方式共享），全文见 [`LICENSE`](LICENSE) 文件。
-  - 署名：请保留 wyndam-c / lynn33-2728 / hjl2004-10 的署名；
-  - 非商业性使用：不得用于商业用途（售卖、付费墙、内置进商业产品等）；
-  - 相同方式共享：基于本二改内容的衍生作品需以相同许可发布。
+本插件沿用原作者声明的 **CC BY-NC-SA 4.0**（署名 — 非商业性使用 — 相同方式共享 4.0 国际）：
+
+- **署名**：使用 / 转载 / 二创都必须保留原作者 **@herdream**、二改 **@lynn33-2728**、三改 **@wyndam-c** 的署名。
+- **二次传播**：允许转载，但必须保留署名、禁止商用，且转载时也必须采用本协议（CC BY-NC-SA 4.0）分享。
+- **二次创作**：允许二创，但必须保留署名、禁止商用，且二创作品也必须采用本协议（CC BY-NC-SA 4.0）分享。
+- **商业用途**：**禁止**；如需商用，请向原作者取得单独授权。
+- 协议全文见 [`LICENSE`](LICENSE)；更早基础项目 `hjl2004-10/extension` 的 MIT 原文保留于 [`LICENSE-MIT`](LICENSE-MIT)。
 
 细节见 [`NOTICE.md`](NOTICE.md)。
 

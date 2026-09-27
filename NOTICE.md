@@ -1,24 +1,28 @@
 # Notice · 出处与许可
 
-本项目为**二次修改版本（二改分支）**，来源链条如下：
+本插件历经三轮作者，署名如下（使用 / 转载 / 二创请**全部保留**）：
 
-1. **原始项目**：`hjl2004-10/extension`　作者 **hjl2004-10**
-   <https://github.com/hjl2004-10/extension>
-2. **上游（本 fork 直接来源）**：`lynn33-2728/ST-sound-forest-TTS`　作者 **@lynn33-2728** 及共同贡献者
-   <https://github.com/lynn33-2728/ST-sound-forest-TTS>（分支 `main`）
-3. **本二改分支**：`wyndam-c/ST-sound-forest-TTS`　维护者 **@wyndam-c**
-   <https://github.com/wyndam-c/ST-sound-forest-TTS>
+1. **原作者**：**@herdream**（herdream0353）
+   声林 TTS 插件的原作者，原帖按 **CC BY-NC-SA 4.0** 发布作品内容。
+2. **二改**：**@lynn33-2728**（lynn / 琳）
+   仓库：<https://github.com/lynn33-2728/ST-sound-forest-TTS>
+3. **三改（本仓库）**：**@wyndam-c**
+   仓库：<https://github.com/wyndam-c/ST-sound-forest-TTS>
    在原有 5 引擎（硅基流动 / 火山引擎 / MiniMax / MOSS / Fish Audio）之外**新增「小米 MiMo TTS」**引擎，并做了自动播放、播放速度、保存反馈等修复与优化。
+
+> 更早的基础项目：`hjl2004-10/extension`（MIT License，原文见 [`LICENSE-MIT`](LICENSE-MIT)），声明一并保留。
 
 ---
 
-## 许可（License）
+## 内容授权（Content License）：CC BY-NC-SA 4.0
 
-- **上游代码部分**：**MIT License** —— 原始版权声明与许可声明完整保留，见 [`LICENSE-MIT`](LICENSE-MIT)。
-- **本二改分支的新增 / 修改部分**：**CC BY-NC-SA 4.0**（署名 — 非商业性使用 — 相同方式共享），全文见 [`LICENSE`](LICENSE)。
-  - **署名**：请保留本仓库与上游作者署名（wyndam-c / lynn33-2728 / hjl2004-10）。
-  - **非商业性使用**：不得用于商业用途（包括但不限于售卖、付费墙、内置进商业产品）。
-  - **相同方式共享**：基于本二改内容的衍生作品，需以相同许可（CC BY-NC-SA 4.0）发布。
+沿用原作者声明 —— **Creative Commons 署名—非商业性使用—相同方式共享 4.0 国际**（全文见 [`LICENSE`](LICENSE)）：
+
+- **署名**：使用 / 转载 / 二创都必须保留 **@herdream**、**@lynn33-2728**、**@wyndam-c** 的署名，不得抹除或替换。
+- **二次传播**：允许转载，但必须保留署名、**禁止商用**，且转载时也必须采用本协议（CC BY-NC-SA 4.0）进行分享。
+- **二次创作**：允许二创，但必须保留署名、**禁止商用**，且二创作品也必须采用本协议（CC BY-NC-SA 4.0）进行分享。
+- **商业用途**：**禁止**。从原作者处取得的**单独授权**可不受本协议限制。
+- **解释权**：原作者在任何地方的亲口声明或操作，效力高于本协议。
 
 ---
 
