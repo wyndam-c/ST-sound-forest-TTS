@@ -1319,10 +1319,40 @@ function applyFishPreset(preset) {
   saveSettingsDebounced();
 }
 
-function fishFetchUrl(url) {
-  // 勾「经酒馆 /proxy 转发」→ 走 /proxy/ 中转；不勾 → 浏览器直连
-  const useProxy = extension_settings[extensionName]?.fishUseProxy === true;
-  return useProxy ? "/proxy/" + encodeURIComponent(url) : url;
+// 构造带/不带 /proxy 的请求地址（useProxy 不传则读设置）
+function fishFetchUrl(url, useProxy) {
+  const on = (useProxy === undefined)
+    ? (extension_settings[extensionName]?.fishUseProxy === true)
+    : useProxy === true;
+  return on ? "/proxy/" + encodeURIComponent(url) : url;
+}
+
+// 带自动回退的 fetch：主路径网络层失败（CORS/不可达）→ 自动换另一条路（proxy ↔ 直连）
+// 这样不管「经酒馆 /proxy 转发」勾没勾，都能用。
+async function fishFetch(url, options = {}) {
+  const preferProxy = extension_settings[extensionName]?.fishUseProxy === true;
+  const order = preferProxy ? [true, false] : [false, true];
+  let lastErr;
+  for (let i = 0; i < order.length; i += 1) {
+    const useProxy = order[i];
+    try {
+      const resp = await fetch(fishFetchUrl(url, useProxy), options);
+      // 酒馆 /proxy 未登录会返 403，此时换直连试试（直连不依赖登录）
+      if (useProxy && resp.status === 403 && i < order.length - 1) {
+        ttsLog("Fish Audio：proxy 中转返回 403（可能未登录酒馆），自动改用直连重试…");
+        lastErr = new Error("proxy 中转 403");
+        continue;
+      }
+      return resp;
+    } catch (e) {
+      if (e && e.name === "AbortError") throw e; // 主动超时/取消，不重试
+      lastErr = e;
+      if (i < order.length - 1) {
+        ttsLog(`Fish Audio：${useProxy ? "proxy 中转" : "直连"}失败（${e && e.message ? e.message : e}），自动改用${useProxy ? "直连" : "proxy 中转"}重试…`);
+      }
+    }
+  }
+  throw lastErr;
 }
 
 function fishBase64ToBlob(b64, mime) {
@@ -1345,7 +1375,7 @@ async function synthesizeFishDesign(text) {
   const timeoutId = setTimeout(() => controller.abort(), 90000);
   let resp;
   try {
-    resp = await fetch(fishFetchUrl(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/v1/voice-design"), {
+    resp = await fishFetch(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/v1/voice-design", {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -1401,7 +1431,7 @@ async function fishUploadClone() {
   const timeoutId = setTimeout(() => controller.abort(), 90000);
   let resp;
   try {
-    resp = await fetch(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/model", {
+    resp = await fishFetch(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/model", {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -1485,7 +1515,7 @@ async function refreshFishVoices(showToast = true) {
   const voices = [];
   for (let page = 1; page <= 100; page += 1) {
     const url = normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + `/model?self=true&page_size=100&page_number=${page}`;
-    const resp = await fetch(fishFetchUrl(url), {
+    const resp = await fishFetch(url, {
       method: "GET",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -1544,7 +1574,7 @@ async function synthesizeFishOnce(text, voiceId) {
   const timeoutId = setTimeout(() => controller.abort(), 60000);
   let resp;
   try {
-    resp = await fetch(fishFetchUrl(normalizeFishHost(s.fishApiHost) + "/v1/tts"), {
+    resp = await fishFetch(normalizeFishHost(s.fishApiHost) + "/v1/tts", {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -5829,15 +5859,11 @@ jQuery(async () => {
         || "90e65eaaf50e4470b8e6d43ee6afd7d5"; // 公开音色做兜底
       const host = normalizeFishHost(s.fishApiHost);
       const model = s.fishModel || defaultSettings.fishModel;
-      const useProxy = s.fishUseProxy !== false;
-      const url = useProxy
-        ? "/proxy/" + encodeURIComponent(host + "/v1/tts")
-        : host + "/v1/tts";
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 30000);
       let resp;
       try {
-        resp = await fetch(url, {
+        resp = await fishFetch(host + "/v1/tts", {
           method: "POST",
           headers: {
             ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
