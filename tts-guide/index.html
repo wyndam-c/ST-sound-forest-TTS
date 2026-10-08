@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声林 TTS · 接入指引</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #333; line-height: 1.7; }
+  h1 { border-bottom: 2px solid #5865f2; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #5865f2; }
+  .card { background: #f8f9ff; border-left: 4px solid #5865f2; padding: 14px 18px; border-radius: 6px; margin: 14px 0; }
+  .card.free { border-color: #faa61a; background: #fffbf2; }
+  ol { padding-left: 22px; }
+  a { color: #5865f2; font-weight: 600; }
+  code { background: #eef; padding: 2px 6px; border-radius: 4px; }
+  small { color: #888; }
+</style>
+</head>
+<body>
+<h1>🌿 声林 TTS 接入指引</h1>
+
+<h2>🐟 Fish Audio（官方 API）</h2>
+<div class="card">
+  <ol>
+    <li>打开 <a href="https://fish.audio/zh-CN/developers/" target="_blank" rel="noopener">Fish Audio 开发者平台</a>，用 Discord / Google 登录。</li>
+    <li>进「Developers → API Keys」点创建，复制生成的 <code>sk-...</code> Key。</li>
+    <li>酒馆「声林」→ Fish Audio 设置：接入方式选「官方 API」，把 Key 粘到「API Key」，点「测试连接」。</li>
+  </ol>
+  <small>⚠️ 官方 Key 默认有少量免费额度，用完需要充值。</small>
+</div>
+
+<h2>🆓 Fish Audio（公益中转 / 免费额度）</h2>
+<div class="card free">
+  <ol>
+    <li>加入 Fish Audio 官方 Discord，点<a href="https://discord.com/channels/1134557553011998840/1555513686012071996" target="_blank" rel="noopener noreferrer">首楼链接</a>注册获取。</li>
+    <li>酒馆「声林」→ Fish Audio 设置：接入方式选「公益中转」，填好转发地址 + 你的令牌，点「测试连接」。</li>
+  </ol>
+  <small>⏰ 免费额度每天北京时间 0 点刷新。</small>
+</div>
+
+<h2 id="mimo">🫘 小米 MiMo TTS</h2>
+<div class="card">
+  <ol>
+    <li>打开 <a href="https://mimo.mi.com/" target="_blank" rel="noopener">Xiaomi MiMo 开放平台</a>，用小米账号登录（没账号去 <a href="https://id.mi.com/" target="_blank" rel="noopener">id.mi.com</a> 注册）。</li>
+    <li>进「控制台 → API Keys」点「创建/申请」，复制生成的 <code>sk-...</code> Key。</li>
+    <li>酒馆「声林」→ 小米 MiMo 设置：把 Key 粘到「API Key」，点「测试连接」。</li>
+  </ol>
+  <small>📖 详细文档：<a href="https://mimo.mi.com/docs/zh-CN/quick-start/first-api-call" target="_blank" rel="noopener">MiMo 快速上手</a>。不想充值？勾「改用免费通道（token-plan-sgp）」白嫖（有日限）。</small>
+</div>
+
+<hr>
+<small>本页由「声林 TTS 插件」内置跳转按钮打开 · 2026-10-08</small>
+</body>
+</html>
