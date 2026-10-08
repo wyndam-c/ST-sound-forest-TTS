@@ -1291,6 +1291,7 @@ function normalizeFishHost(host) {
 }
 
 // 预设：选哪个按钮就填哪个值，不再对调
+// 注意：不在代码里硬编码任何密钥/私有地址——让用户自己在界面里填
 const FISH_OFFICIAL_PRESET = {
   host: "https://api.fish.audio",
   key: "",
@@ -1307,13 +1308,14 @@ function applyFishPreset(preset) {
   s.fishPreset = (preset === "relay" || preset === "custom") ? preset : "official";
   const p = (s.fishPreset === "relay") ? FISH_RELAY_PRESET : FISH_OFFICIAL_PRESET;
   if (s.fishPreset !== "custom") {
-    s.fishApiHost = p.host;
-    s.fishApiKey = p.key;
-    s.fishModel = p.model;
+    // 只填非空字段；密钥/私有地址空着就保留用户手填的值
+    if (p.host) s.fishApiHost = p.host;
+    if (p.key) s.fishApiKey = p.key;
+    if (p.model) s.fishModel = p.model;
     s.fishUseProxy = true;   // 默认开 proxy，浏览器直连容易被拦
-    if ($("#fish_api_host").length) $("#fish_api_host").val(s.fishApiHost);
-    if ($("#fish_api_key").length) $("#fish_api_key").val(s.fishApiKey);
-    if ($("#fish_model").length) $("#fish_model").val(s.fishModel);
+    if ($("#fish_api_host").length && p.host) $("#fish_api_host").val(s.fishApiHost);
+    if ($("#fish_api_key").length && p.key) $("#fish_api_key").val(s.fishApiKey);
+    if ($("#fish_model").length && p.model) $("#fish_model").val(s.fishModel);
     if ($("#fish_use_proxy").length) $("#fish_use_proxy").prop("checked", true);
   }
   saveSettingsDebounced();
