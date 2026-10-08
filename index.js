@@ -1310,19 +1310,19 @@ function applyFishPreset(preset) {
     s.fishApiHost = p.host;
     s.fishApiKey = p.key;
     s.fishModel = p.model;
-    s.fishUseProxy = false;
+    s.fishUseProxy = true;   // 默认开 proxy，浏览器直连容易被拦
     if ($("#fish_api_host").length) $("#fish_api_host").val(s.fishApiHost);
     if ($("#fish_api_key").length) $("#fish_api_key").val(s.fishApiKey);
     if ($("#fish_model").length) $("#fish_model").val(s.fishModel);
-    if ($("#fish_use_proxy").length) $("#fish_use_proxy").prop("checked", false);
+    if ($("#fish_use_proxy").length) $("#fish_use_proxy").prop("checked", true);
   }
   saveSettingsDebounced();
 }
 
 function fishFetchUrl(url) {
-  // 默认走酒馆 /proxy 中转避跨域；勾选「直连」则直接 fetch
-  const useProxy = extension_settings[extensionName]?.fishUseProxy === false;
-  return useProxy ? url : "/proxy/" + encodeURIComponent(url);
+  // 勾「经酒馆 /proxy 转发」→ 走 /proxy/ 中转；不勾 → 浏览器直连
+  const useProxy = extension_settings[extensionName]?.fishUseProxy === true;
+  return useProxy ? "/proxy/" + encodeURIComponent(url) : url;
 }
 
 function fishBase64ToBlob(b64, mime) {
