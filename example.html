@@ -455,6 +455,14 @@
                                 <section class="sf-section">
                                     <h4>小米 MiMo · API设定</h4>
                                     <div class="sf-help-line">小米 MiMo TTS 走 OpenAI 兼容接口，返回 wav 音频。在下面填入 MiMo 的 API Key 即可。</div>
+                                    <div class="sf-help-line" style="background: rgba(255,215,0,0.08); padding: 8px 10px; border-left: 3px solid #ffd54a; margin: 6px 0;">
+                                        <b>📝 没有 API Key？三步搞定：</b><br>
+                                        ① 打开 <a href="https://mimo.mi.com/" target="_blank" rel="noopener">Xiaomi MiMo 开放平台</a>，用小米账号登录（没账号去 <a href="https://id.mi.com/" target="_blank" rel="noopener">id.mi.com</a> 注册）<br>
+                                        ② 进「控制台 → API Keys」点「创建/申请」，复制生成的 <code>sk-...</code> Key<br>
+                                        ③ 把 Key 粘到下面「API Key」框，再点「测试连接」<br>
+                                        <small>💡 不想充值？勾上「改用免费通道（token-plan-sgp）」，免费 Key 填免费通道那栏即可白嫖（有日限）。</small><br>
+                                        <small>📖 详细文档：<a href="https://mimo.mi.com/docs/zh-CN/quick-start/first-api-call" target="_blank" rel="noopener">MiMo 快速上手</a></small>
+                                    </div>
                                     <div class="sf-setting-row">
                                         <label for="mimo_api_key">API Key：</label>
                                         <input id="mimo_api_key" type="password" placeholder="输入小米 MiMo API Key" />
