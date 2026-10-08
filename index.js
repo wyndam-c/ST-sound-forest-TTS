@@ -1332,11 +1332,22 @@ function fishFetchUrl(url, useProxy) {
 async function fishFetch(url, options = {}) {
   const preferProxy = extension_settings[extensionName]?.fishUseProxy === true;
   const order = preferProxy ? [true, false] : [false, true];
+  // 直连时只保留这几个头；酒馆专用头（如 X-CSRF-Token）会触发 CORS 预检，
+  // 而中转 Worker 的 allow-headers 只放行 Authorization/Content-Type/model → 预检被拦 → Failed to fetch
+  const DIRECT_KEEP = new Set(["content-type", "authorization", "model", "accept"]);
   let lastErr;
   for (let i = 0; i < order.length; i += 1) {
     const useProxy = order[i];
+    let opts = options;
+    if (!useProxy && options && options.headers) {
+      const h = {};
+      for (const [k, v] of Object.entries(options.headers)) {
+        if (DIRECT_KEEP.has(String(k).toLowerCase())) h[k] = v;
+      }
+      opts = { ...options, headers: h };
+    }
     try {
-      const resp = await fetch(fishFetchUrl(url, useProxy), options);
+      const resp = await fetch(fishFetchUrl(url, useProxy), opts);
       // 酒馆 /proxy 未登录会返 403，此时换直连试试（直连不依赖登录）
       if (useProxy && resp.status === 403 && i < order.length - 1) {
         ttsLog("Fish Audio：proxy 中转返回 403（可能未登录酒馆），自动改用直连重试…");
