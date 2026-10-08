@@ -396,16 +396,6 @@
                                             <input type="checkbox" id="fish_use_proxy" /><span>经酒馆 /proxy 转发（直连被 CORS 拦时勾选）</span>
                                         </label>
                                     </div>
-                                    <div class="setting-item button-group sf-checkbox-inline-row">
-                                        <label class="sf-checkbox-item">
-                                            <input type="checkbox" id="fish_chunk_enabled" /><span>长文本分段「边生成边播」（先出声，推荐）</span>
-                                        </label>
-                                        <div style="margin-top:6px;">
-                                            <label for="fish_chunk_max">每段最多</label>
-                                            <input type="number" id="fish_chunk_max" min="100" max="1000" step="50" value="300" style="width:82px;" />
-                                            <span>字</span>
-                                        </div>
-                                    </div>
                                     <div class="setting-item" id="fish_preset_row">
                                         <label for="fish_model">TTS模型</label>
                                         <select id="fish_model">

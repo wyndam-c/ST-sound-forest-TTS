@@ -166,8 +166,6 @@ const defaultSettings = {
   mossResponseFormat: "mp3",
   roleVoiceMapMoss: {},
   fishApiKey: "",
-  fishApiHost: "https://api.fish.audio",
-  fishPreset: "official", // official | relay | custom
   fishModel: "s2.1-pro-free",
   fishVoiceId: "",
   fishManualVoiceId: "",
@@ -177,8 +175,6 @@ const defaultSettings = {
   fishCloneData: "",
   fishCloneName: "",
   fishUseProxy: false,
-  fishChunkEnabled: true,   // 长文本分段「边生成边播」
-  fishChunkMaxChars: 300,  // 每段最多多少字（100~1000）
   roleVoiceMapFish: {},
   // ===== 小米 MiMo TTS =====
   mimoApiKey: "",
@@ -1236,7 +1232,6 @@ async function synthesizeMoss(text, voiceId) {
 function syncFishSettingsFromUi() {
   const s = extension_settings[extensionName] || (extension_settings[extensionName] = {});
   if ($("#fish_api_key").length) s.fishApiKey = String($("#fish_api_key").val() || "").trim();
-  if ($("#fish_api_host").length) s.fishApiHost = normalizeFishHost($("#fish_api_host").val());
   if ($("#fish_model").length) s.fishModel = $("#fish_model").val() || defaultSettings.fishModel;
   if ($("#fish_voice_id").length) s.fishVoiceId = String($("#fish_voice_id").val() || "").trim();
   if ($("#fish_voice_id_manual").length) s.fishManualVoiceId = String($("#fish_voice_id_manual").val() || "").trim();
@@ -1246,11 +1241,6 @@ function syncFishSettingsFromUi() {
   }
   if ($("#fish_design_prompt").length) s.fishDesignPrompt = String($("#fish_design_prompt").val() || "");
   if ($("#fish_use_proxy").length) s.fishUseProxy = $("#fish_use_proxy").prop("checked") === true;
-  if ($("#fish_chunk_enabled").length) s.fishChunkEnabled = $("#fish_chunk_enabled").prop("checked") === true;
-  if ($("#fish_chunk_max").length) {
-    const n = Number($("#fish_chunk_max").val());
-    if (Number.isFinite(n) && n >= 100) s.fishChunkMaxChars = Math.min(Math.round(n), 1000);
-  }
   return s;
 }
 
@@ -1283,42 +1273,6 @@ function getFishVoice() {
   return String(s.fishManualVoiceId || s.fishVoiceId || "").trim();
 }
 
-function normalizeFishHost(host) {
-  let u = String(host || "").trim().replace(/\/+$/, "");
-  if (!u) return "https://api.fish.audio";
-  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
-  return u;
-}
-
-// 预设：选哪个按钮就填哪个值，不再对调
-const FISH_OFFICIAL_PRESET = {
-  host: "https://api.fish.audio",
-  key: "",
-  model: "s2.1-pro-free",
-};
-const FISH_RELAY_PRESET = {
-  host: "",
-  key: "",
-  model: "s2.1-pro-free",
-};
-
-function applyFishPreset(preset) {
-  const s = extension_settings[extensionName] || (extension_settings[extensionName] = {});
-  s.fishPreset = (preset === "relay" || preset === "custom") ? preset : "official";
-  const p = (s.fishPreset === "relay") ? FISH_RELAY_PRESET : FISH_OFFICIAL_PRESET;
-  if (s.fishPreset !== "custom") {
-    s.fishApiHost = p.host;
-    s.fishApiKey = p.key;
-    s.fishModel = p.model;
-    s.fishUseProxy = false;
-    if ($("#fish_api_host").length) $("#fish_api_host").val(s.fishApiHost);
-    if ($("#fish_api_key").length) $("#fish_api_key").val(s.fishApiKey);
-    if ($("#fish_model").length) $("#fish_model").val(s.fishModel);
-    if ($("#fish_use_proxy").length) $("#fish_use_proxy").prop("checked", false);
-  }
-  saveSettingsDebounced();
-}
-
 function fishFetchUrl(url) {
   // 默认走酒馆 /proxy 中转避跨域；勾选「直连」则直接 fetch
   const useProxy = extension_settings[extensionName]?.fishUseProxy === false;
@@ -1345,7 +1299,7 @@ async function synthesizeFishDesign(text) {
   const timeoutId = setTimeout(() => controller.abort(), 90000);
   let resp;
   try {
-    resp = await fetch(fishFetchUrl(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/v1/voice-design"), {
+    resp = await fetch(fishFetchUrl("https://api.fish.audio/v1/voice-design"), {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -1401,7 +1355,7 @@ async function fishUploadClone() {
   const timeoutId = setTimeout(() => controller.abort(), 90000);
   let resp;
   try {
-    resp = await fetch(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/model", {
+    resp = await fetch("https://api.fish.audio/model", {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -1484,7 +1438,7 @@ async function refreshFishVoices(showToast = true) {
   if (!apiKey) throw new Error("请先填写 Fish Audio API Key");
   const voices = [];
   for (let page = 1; page <= 100; page += 1) {
-    const url = normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + `/model?self=true&page_size=100&page_number=${page}`;
+    const url = `https://api.fish.audio/model?self=true&page_size=100&page_number=${page}`;
     const resp = await fetch(fishFetchUrl(url), {
       method: "GET",
       headers: {
@@ -1517,7 +1471,7 @@ async function refreshFishVoices(showToast = true) {
 }
 
 async function synthesizeFish(text, voiceId) {
-  const s = extension_settings[extensionName] || {};
+  const s = syncFishSettingsFromUi();
   const mode = getFishMode();
   if (mode === "design") return synthesizeFishDesign(text);
   if (mode === "clone") {
@@ -1530,12 +1484,6 @@ async function synthesizeFish(text, voiceId) {
       }
     }
   }
-  return synthesizeFishOnce(text, voiceId);
-}
-
-// 真正调 /v1/tts 合成一段
-async function synthesizeFishOnce(text, voiceId) {
-  const s = extension_settings[extensionName] || {};
   const apiKey = String(s.fishApiKey || "").trim();
   const referenceId = String(voiceId || getFishVoice()).trim();
   if (!apiKey) throw new Error("请先填写 Fish Audio API Key");
@@ -1544,7 +1492,7 @@ async function synthesizeFishOnce(text, voiceId) {
   const timeoutId = setTimeout(() => controller.abort(), 60000);
   let resp;
   try {
-    resp = await fetch(fishFetchUrl(normalizeFishHost(s.fishApiHost) + "/v1/tts"), {
+    resp = await fetch(fishFetchUrl("https://api.fish.audio/v1/tts"), {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -2053,15 +2001,11 @@ async function loadSettings() {
   buildMossVoiceOptions();
   renderMossCloneList();
   $("#fish_api_key").val(extension_settings[extensionName].fishApiKey || "");
-  $("#fish_api_host").val(normalizeFishHost(extension_settings[extensionName].fishApiHost || defaultSettings.fishApiHost));
-  $("#fish_preset").val(extension_settings[extensionName].fishPreset || "official");
   $("#fish_model").val(extension_settings[extensionName].fishModel || defaultSettings.fishModel);
   $("#fish_voice_id_manual").val(extension_settings[extensionName].fishManualVoiceId || "");
   $("#fish_mode").val(getFishMode());
   $("#fish_design_prompt").val(extension_settings[extensionName].fishDesignPrompt || "");
   $("#fish_use_proxy").prop("checked", extension_settings[extensionName].fishUseProxy === true);
-  $("#fish_chunk_enabled").prop("checked", extension_settings[extensionName].fishChunkEnabled !== false);
-  $("#fish_chunk_max").val(Number(extension_settings[extensionName].fishChunkMaxChars) >= 100 ? extension_settings[extensionName].fishChunkMaxChars : 300);
   buildFishVoiceOptions();
   updateFishModeUI();
   updateFishCloneUI();
@@ -2804,32 +2748,6 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
         });
         if (!chunkUrls.length || !isTtsGenerationCurrent(genId)) return;
         const chunkLink = $(`<a href="${chunkUrls[0]}" download="tts_output_part_1.wav">下载音频（第 1 段，共 ${chunkUrls.length} 段）</a>`);
-        $("#tts_output").empty().append(chunkLink);
-        return chunkUrls[0];
-      }
-    }
-
-    // Fish Audio：长文本分段「边生成边播」
-    if (engine === "fish" && (extension_settings[extensionName]?.fishChunkEnabled !== false)) {
-      const maxChars = Number(extension_settings[extensionName]?.fishChunkMaxChars) >= 100
-        ? Math.min(Number(extension_settings[extensionName]?.fishChunkMaxChars), 1000) : 300;
-      const fishChunks = splitVolcanoText(text, Math.max(300, maxChars * 3));
-      if (fishChunks.length > 1) {
-        ttsLog(`✂ Fish Audio 长文本已拆分为 ${fishChunks.length} 段，边生成边播（先出声）`);
-        toastr.info(`文本较长，已拆分为 ${fishChunks.length} 段边生成边播`, "Fish Audio");
-        const chunkUrls = await generateAndPlayChunkedAudio({
-          engine: "fish",
-          label: "Fish Audio",
-          chunks: fishChunks,
-          voiceValue,
-          cacheKey,
-          fullText: text,
-          buttonElement,
-          genId,
-          synthesize: (chunk, i) => synthOnce(cacheKey + "::" + i, () => synthesizeFish(chunk, voiceValue)),
-        });
-        if (!chunkUrls.length || !isTtsGenerationCurrent(genId)) return;
-        const chunkLink = $(`<a href="${chunkUrls[0]}" download="tts_output_part_1.mp3">下载音频（第 1 段，共 ${chunkUrls.length} 段）</a>`);
         $("#tts_output").empty().append(chunkLink);
         return chunkUrls[0];
       }
@@ -5744,17 +5662,6 @@ jQuery(async () => {
     saveSettingsDebounced();
     renderRoleVoiceMap();
   });
-  $("#fish_api_host").on("input change", function() {
-    syncFishSettingsFromUi();
-    saveSettingsDebounced();
-  });
-  $("#fish_preset").on("change", function() {
-    const v = String($("#fish_preset").val() || "official");
-    applyFishPreset(v);
-    syncFishSettingsFromUi();
-    saveSettingsDebounced();
-    ttsLog("Fish Audio 已切换到：" + ({ official: "官方 API", relay: "公益中转（每日限额）", custom: "自定义" }[v] || v));
-  });
   $("#fish_model").on("change", function() {
     syncFishSettingsFromUi();
     saveSettingsDebounced();
@@ -5766,15 +5673,6 @@ jQuery(async () => {
     renderRoleVoiceMap();
   });
   $("#fish_use_proxy").on("change", function() {
-    syncFishSettingsFromUi();
-    saveSettingsDebounced();
-  });
-  $("#fish_chunk_enabled").on("change", function() {
-    syncFishSettingsFromUi();
-    saveSettingsDebounced();
-    ttsLog("Fish Audio 长文本分段边生成边播：" + ($(this).prop("checked") ? "开" : "关"));
-  });
-  $("#fish_chunk_max").on("input change", function() {
     syncFishSettingsFromUi();
     saveSettingsDebounced();
   });
@@ -5811,72 +5709,13 @@ jQuery(async () => {
     button.prop("disabled", true);
     if (testing) status.text("测试中…").css("color", "#ffd54a");
     try {
-      // 先拉音色列表（公益中转/未鉴权时可能 401，这步只作参考）
-      let voices = [];
-      let listNote = "";
-      try {
-        voices = await refreshFishVoices(false);
-      } catch (listErr) {
-        listNote = (listErr && listErr.message) ? listErr.message : String(listErr);
-        ttsLog("Fish Audio 音色列表拉取失败（不影响合成）：" + listNote);
-      }
-
-      // 再真合成一句测试音，这才是真正判断“能不能用”
-      const s = extension_settings[extensionName] || {};
-      const apiKey = String(s.fishApiKey || "").trim();
-      if (!apiKey) throw new Error("请先填写 Fish Audio API Key");
-      const refId = String(s.fishManualVoiceId || s.fishVoiceId || "").trim()
-        || "90e65eaaf50e4470b8e6d43ee6afd7d5"; // 公开音色做兜底
-      const host = normalizeFishHost(s.fishApiHost);
-      const model = s.fishModel || defaultSettings.fishModel;
-      const useProxy = s.fishUseProxy !== false;
-      const url = useProxy
-        ? "/proxy/" + encodeURIComponent(host + "/v1/tts")
-        : host + "/v1/tts";
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
-      let resp;
-      try {
-        resp = await fetch(url, {
-          method: "POST",
-          headers: {
-            ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-            model: model,
-          },
-          body: JSON.stringify({ text: "你好，连接测试成功。", reference_id: refId, format: "mp3" }),
-          signal: ctrl.signal,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!resp.ok) {
-        const errText = await readMossError(resp);
-        if (resp.status === 402) throw new Error("账户 API 额度不足（402），请到 fish.audio/app/developers 充值；或切到公益中转模式");
-        if (resp.status === 401) throw new Error("API Key 无效（401），请检查后重试");
-        throw new Error(`Fish Audio HTTP ${resp.status}：${errText}`);
-      }
-      const ct = resp.headers.get("content-type") || "";
-      if (ct.includes("json") || ct.includes("text/html")) {
-        throw new Error("未返回音频：" + (await resp.text()).slice(0, 180));
-      }
-      const blob = await resp.blob();
-      if (!blob.size) throw new Error("返回了空音频");
-
-      // 真合成成功 → 已连接
+      const voices = await refreshFishVoices(!testing);
       status.text("已连接").css("color", "green");
-      const voiceMsg = voices.length > 0
-        ? `已读取 ${voices.length} 个账号音色；`
-        : "账号下暂无自建音色（可用手动 ID 或公益中转）；";
-      if (testing) {
-        toastr.success(`${voiceMsg}测试音合成成功（${(blob.size/1024).toFixed(0)} KB）`, "Fish Audio 已连接");
-        ttsLog(`✅ Fish Audio 连接成功：${voiceMsg}测试音 ${(blob.size/1024).toFixed(0)} KB，模型=${model}`);
-      }
+      if (testing) toastr.success(`API Key 有效，已读取 ${voices.length} 个账号音色`, "Fish Audio");
     } catch (e) {
       status.text("未连接").css("color", "red");
       const message = e && e.message ? e.message : String(e);
-      ttsLog("❌ Fish Audio 连接失败：" + message);
+      ttsLog("Fish Audio 音色列表失败：" + message);
       toastr.error(message, testing ? "Fish Audio 连接失败" : "Fish Audio 音色列表");
     } finally {
       button.prop("disabled", false);

@@ -1,11 +1,11 @@
 {
-  "display_name": "声林 · 多平台语音（TTS）+ 小米 MiMo",
+  "display_name": "声林 · 多平台语音（TTS）+ Fish 三模式 + 分段",
   "loading_order": 1,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
   "author": "沐风的狗子 / lynn33-2728",
-  "version": "2.3.7-mimo",
+  "version": "2.4.0-fish",
   "homePage": "https://github.com/wyndam-c/ST-sound-forest-TTS"
 }

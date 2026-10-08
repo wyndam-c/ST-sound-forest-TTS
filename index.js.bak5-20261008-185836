@@ -177,8 +177,6 @@ const defaultSettings = {
   fishCloneData: "",
   fishCloneName: "",
   fishUseProxy: false,
-  fishChunkEnabled: true,   // 长文本分段「边生成边播」
-  fishChunkMaxChars: 300,  // 每段最多多少字（100~1000）
   roleVoiceMapFish: {},
   // ===== 小米 MiMo TTS =====
   mimoApiKey: "",
@@ -1246,11 +1244,6 @@ function syncFishSettingsFromUi() {
   }
   if ($("#fish_design_prompt").length) s.fishDesignPrompt = String($("#fish_design_prompt").val() || "");
   if ($("#fish_use_proxy").length) s.fishUseProxy = $("#fish_use_proxy").prop("checked") === true;
-  if ($("#fish_chunk_enabled").length) s.fishChunkEnabled = $("#fish_chunk_enabled").prop("checked") === true;
-  if ($("#fish_chunk_max").length) {
-    const n = Number($("#fish_chunk_max").val());
-    if (Number.isFinite(n) && n >= 100) s.fishChunkMaxChars = Math.min(Math.round(n), 1000);
-  }
   return s;
 }
 
@@ -1290,26 +1283,39 @@ function normalizeFishHost(host) {
   return u;
 }
 
-// 预设：选哪个按钮就填哪个值，不再对调
-const FISH_OFFICIAL_PRESET = {
+// 公益中转预设（注意：这里存的是「官方 API」按钮应该填的值）
+const FISH_RELAY_PRESET = {
   host: "https://api.fish.audio",
-  key: "",
+  key: "sk-fish-NfxtjfJw2CFhIOCButCJAdA5MH0EBvPpxGrWmx6hbHY",
   model: "s2.1-pro-free",
 };
-const FISH_RELAY_PRESET = {
-  host: "",
-  key: "",
+
+// 官方 API 预设（注意：这里存的是「公益中转」按钮应该填的值）
+const FISH_OFFICIAL_PRESET = {
+  host: "https://fish-audio-relay.twydtacs.workers.dev",
+  key: "sk-86b4b1fb10de160f756ff68c7527b32a087ca058ca5069ba",
   model: "s2.1-pro-free",
 };
 
 function applyFishPreset(preset) {
   const s = extension_settings[extensionName] || (extension_settings[extensionName] = {});
   s.fishPreset = (preset === "relay" || preset === "custom") ? preset : "official";
-  const p = (s.fishPreset === "relay") ? FISH_RELAY_PRESET : FISH_OFFICIAL_PRESET;
-  if (s.fishPreset !== "custom") {
-    s.fishApiHost = p.host;
-    s.fishApiKey = p.key;
-    s.fishModel = p.model;
+  // 「官方 API」按钮 → 填公益中转的值（用户要求对调）
+  if (s.fishPreset === "official") {
+    s.fishApiHost = FISH_OFFICIAL_PRESET.host;
+    s.fishApiKey = FISH_OFFICIAL_PRESET.key;
+    s.fishModel = FISH_OFFICIAL_PRESET.model;
+    s.fishUseProxy = false;
+    if ($("#fish_api_host").length) $("#fish_api_host").val(s.fishApiHost);
+    if ($("#fish_api_key").length) $("#fish_api_key").val(s.fishApiKey);
+    if ($("#fish_model").length) $("#fish_model").val(s.fishModel);
+    if ($("#fish_use_proxy").length) $("#fish_use_proxy").prop("checked", false);
+  }
+  // 「公益中转」按钮 → 填官方的值（用户要求对调）
+  if (s.fishPreset === "relay") {
+    s.fishApiHost = FISH_RELAY_PRESET.host;
+    s.fishApiKey = FISH_RELAY_PRESET.key;
+    s.fishModel = FISH_RELAY_PRESET.model;
     s.fishUseProxy = false;
     if ($("#fish_api_host").length) $("#fish_api_host").val(s.fishApiHost);
     if ($("#fish_api_key").length) $("#fish_api_key").val(s.fishApiKey);
@@ -1517,7 +1523,7 @@ async function refreshFishVoices(showToast = true) {
 }
 
 async function synthesizeFish(text, voiceId) {
-  const s = extension_settings[extensionName] || {};
+  const s = syncFishSettingsFromUi();
   const mode = getFishMode();
   if (mode === "design") return synthesizeFishDesign(text);
   if (mode === "clone") {
@@ -1530,12 +1536,6 @@ async function synthesizeFish(text, voiceId) {
       }
     }
   }
-  return synthesizeFishOnce(text, voiceId);
-}
-
-// 真正调 /v1/tts 合成一段
-async function synthesizeFishOnce(text, voiceId) {
-  const s = extension_settings[extensionName] || {};
   const apiKey = String(s.fishApiKey || "").trim();
   const referenceId = String(voiceId || getFishVoice()).trim();
   if (!apiKey) throw new Error("请先填写 Fish Audio API Key");
@@ -1544,7 +1544,7 @@ async function synthesizeFishOnce(text, voiceId) {
   const timeoutId = setTimeout(() => controller.abort(), 60000);
   let resp;
   try {
-    resp = await fetch(fishFetchUrl(normalizeFishHost(s.fishApiHost) + "/v1/tts"), {
+    resp = await fetch(fishFetchUrl(normalizeFishHost(extension_settings[extensionName]?.fishApiHost) + "/v1/tts"), {
       method: "POST",
       headers: {
         ...(typeof getRequestHeaders === "function" ? getRequestHeaders() : {}),
@@ -2060,8 +2060,6 @@ async function loadSettings() {
   $("#fish_mode").val(getFishMode());
   $("#fish_design_prompt").val(extension_settings[extensionName].fishDesignPrompt || "");
   $("#fish_use_proxy").prop("checked", extension_settings[extensionName].fishUseProxy === true);
-  $("#fish_chunk_enabled").prop("checked", extension_settings[extensionName].fishChunkEnabled !== false);
-  $("#fish_chunk_max").val(Number(extension_settings[extensionName].fishChunkMaxChars) >= 100 ? extension_settings[extensionName].fishChunkMaxChars : 300);
   buildFishVoiceOptions();
   updateFishModeUI();
   updateFishCloneUI();
@@ -2804,32 +2802,6 @@ async function generateTTS(text, buttonElement = null, voiceOverride = null) {
         });
         if (!chunkUrls.length || !isTtsGenerationCurrent(genId)) return;
         const chunkLink = $(`<a href="${chunkUrls[0]}" download="tts_output_part_1.wav">下载音频（第 1 段，共 ${chunkUrls.length} 段）</a>`);
-        $("#tts_output").empty().append(chunkLink);
-        return chunkUrls[0];
-      }
-    }
-
-    // Fish Audio：长文本分段「边生成边播」
-    if (engine === "fish" && (extension_settings[extensionName]?.fishChunkEnabled !== false)) {
-      const maxChars = Number(extension_settings[extensionName]?.fishChunkMaxChars) >= 100
-        ? Math.min(Number(extension_settings[extensionName]?.fishChunkMaxChars), 1000) : 300;
-      const fishChunks = splitVolcanoText(text, Math.max(300, maxChars * 3));
-      if (fishChunks.length > 1) {
-        ttsLog(`✂ Fish Audio 长文本已拆分为 ${fishChunks.length} 段，边生成边播（先出声）`);
-        toastr.info(`文本较长，已拆分为 ${fishChunks.length} 段边生成边播`, "Fish Audio");
-        const chunkUrls = await generateAndPlayChunkedAudio({
-          engine: "fish",
-          label: "Fish Audio",
-          chunks: fishChunks,
-          voiceValue,
-          cacheKey,
-          fullText: text,
-          buttonElement,
-          genId,
-          synthesize: (chunk, i) => synthOnce(cacheKey + "::" + i, () => synthesizeFish(chunk, voiceValue)),
-        });
-        if (!chunkUrls.length || !isTtsGenerationCurrent(genId)) return;
-        const chunkLink = $(`<a href="${chunkUrls[0]}" download="tts_output_part_1.mp3">下载音频（第 1 段，共 ${chunkUrls.length} 段）</a>`);
         $("#tts_output").empty().append(chunkLink);
         return chunkUrls[0];
       }
@@ -5766,15 +5738,6 @@ jQuery(async () => {
     renderRoleVoiceMap();
   });
   $("#fish_use_proxy").on("change", function() {
-    syncFishSettingsFromUi();
-    saveSettingsDebounced();
-  });
-  $("#fish_chunk_enabled").on("change", function() {
-    syncFishSettingsFromUi();
-    saveSettingsDebounced();
-    ttsLog("Fish Audio 长文本分段边生成边播：" + ($(this).prop("checked") ? "开" : "关"));
-  });
-  $("#fish_chunk_max").on("input change", function() {
     syncFishSettingsFromUi();
     saveSettingsDebounced();
   });

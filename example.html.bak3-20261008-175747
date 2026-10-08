@@ -355,16 +355,7 @@
                             <div id="sf_engine_fish" class="sf-engine-block" style="display: none;">
                                 <section class="sf-section">
                                     <h4>Fish Audio · API设定</h4>
-                                    <div class="sf-help-line">从 <a href="https://fish.audio/zh-CN/developers/" target="_blank" rel="noopener noreferrer">Fish Audio 开发者页面</a> 获取 API Key，或选择公益中转模式。</div>
-                                    <div class="setting-item">
-                                        <label for="fish_preset">接入方式</label>
-                                        <select id="fish_preset">
-                                            <option value="official">官方 API（fish.audio，需自己的 Key）</option>
-                                            <option value="relay">公益中转（内置令牌，每日限额）</option>
-                                            <option value="custom">自定义（自己填地址 + Key）</option>
-                                        </select>
-                                        <small>选「公益中转」会自动填好地址与令牌，额度每天北京时间 0 点刷新。</small>
-                                    </div>
+                                    <div class="sf-help-line">从 <a href="https://fish.audio/zh-CN/developers/" target="_blank" rel="noopener noreferrer">Fish Audio 开发者页面</a> 获取 API Key。</div>
                                     <div class="sf-setting-row">
                                         <label for="fish_api_key">API Key：</label>
                                         <input id="fish_api_key" type="password" placeholder="输入 Fish Audio API Key（或中转令牌）" />
@@ -395,16 +386,6 @@
                                         <label class="sf-checkbox-item">
                                             <input type="checkbox" id="fish_use_proxy" /><span>经酒馆 /proxy 转发（直连被 CORS 拦时勾选）</span>
                                         </label>
-                                    </div>
-                                    <div class="setting-item button-group sf-checkbox-inline-row">
-                                        <label class="sf-checkbox-item">
-                                            <input type="checkbox" id="fish_chunk_enabled" /><span>长文本分段「边生成边播」（先出声，推荐）</span>
-                                        </label>
-                                        <div style="margin-top:6px;">
-                                            <label for="fish_chunk_max">每段最多</label>
-                                            <input type="number" id="fish_chunk_max" min="100" max="1000" step="50" value="300" style="width:82px;" />
-                                            <span>字</span>
-                                        </div>
                                     </div>
                                     <div class="setting-item" id="fish_preset_row">
                                         <label for="fish_model">TTS模型</label>
