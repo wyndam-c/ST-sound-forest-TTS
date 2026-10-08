@@ -355,7 +355,14 @@
                             <div id="sf_engine_fish" class="sf-engine-block" style="display: none;">
                                 <section class="sf-section">
                                     <h4>Fish Audio · API设定</h4>
-                                    <div class="sf-help-line">从 <a href="https://fish.audio/zh-CN/developers/" target="_blank" rel="noopener noreferrer">Fish Audio 开发者页面</a> 获取 API Key，或选择公益中转模式。</div>
+                                    <div class="sf-help-line">从 <a href="https://fish.audio/zh-CN/developers/" target="_blank" rel="noopener noreferrer">Fish Audio 开发者页面</a> 申请官方 API Key；用「公益中转」可白嫖免费额度。</div>
+                                    <div class="sf-help-line" style="background: rgba(88,101,242,0.08); padding: 8px 10px; border-left: 3px solid #5865f2; margin: 6px 0;">
+                                        <b>🆓 公益中转 Key 在哪拿？</b><br>
+                                        ① 加入 Fish Audio 官方 Discord：<a href="https://discord.com/channels/1134557553011998840/1555513686012071996" target="_blank" rel="noopener noreferrer">点此跳转领取频道</a><br>
+                                        ② 在频道里按机器人提示申领你的免费令牌（token）<br>
+                                        ③ 把令牌粘到「API Key」框，「接入方式」选「公益中转」并填好中转地址 → 点「测试连接」<br>
+                                        <small>⏰ 额度每日北京时间 0 点刷新。</small>
+                                    </div>
                                     <div class="setting-item">
                                         <label for="fish_preset">接入方式</label>
                                         <select id="fish_preset">
@@ -363,7 +370,7 @@
                                             <option value="relay">公益中转（内置令牌，每日限额）</option>
                                             <option value="custom">自定义（自己填地址 + Key）</option>
                                         </select>
-                                        <small>选「公益中转」会自动填好地址与令牌，额度每天北京时间 0 点刷新。</small>
+                                        <small>公益中转：在 Discord 领取免费令牌；官方 API：去 Fish 开发者页申请。</small>
                                     </div>
                                     <div class="sf-setting-row">
                                         <label for="fish_api_key">API Key：</label>
